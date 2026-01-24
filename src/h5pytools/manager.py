@@ -8,6 +8,8 @@ from typing import Optional, Any, List, Dict
 
 import numpy as np
 
+from h5pytools.util import utc
+
 
 class H5File:
     """
@@ -148,6 +150,23 @@ class H5File:
         if path in self.file:
             del self.file[path]
         self.file.create_dataset(path, data=data)
+
+
+    def write_name(self, name: str) -> None:
+        """Wrap write method and set name."""
+        self.write("common/name", name)
+
+
+    def write_created(self) -> None:
+        """Wrap write method and set creation timestamp if not already present."""
+        group = self.file.require_group("common")
+        if "created" not in group:
+            group.create_dataset("created", data=utc())
+
+
+    def write_modified(self) -> None:
+        """Wrap write method and set modification date."""
+        self.write("common/modified", utc())
 
 
     def inspect(self) -> None:

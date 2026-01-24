@@ -163,8 +163,19 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
 
     def write_pore_voxels(self):
-        self.columns_to_h5(self._pores, "voxels", ["Label"], "Label != @self.surface_label")
+        pore_id = self.h5.read(self._pores + "ID")
+        voxel_stack = []
+        voxel_lengths = []
+        voxel_offsets = []
+        for p in pore_id:
+            voxels = self.data.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
+            voxel_stack.append(voxels)
+            voxel_lengths.append(voxels.shape[0])
 
+        offsets = np.zeros(len(voxel_lengths) + 1, dtype=int)
+        offsets[1:] = np.cumsum(voxel_lengths)
+        self.columns_to_h5(self._pores, "voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
+        self.h5.write(self._pores + "offsets", offsets)
 
     def write_surface_voxels(self):
         self.columns_to_h5(self._surface, "voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
@@ -213,6 +224,68 @@ def test_cleanup():
         print("Error deleting file:", e)
 
 
+TEST_MEASURE = "/home/ale/Desktop/example/measure.csv"
+TEST_VOXELS = "/home/ale/Desktop/example/voxels.csv"
+TEST_FIJI = "../../config/fiji-keys.yaml"
+
+def read_descriptors():
+    h5 = H5File(TEST_H5, "a", overwrite=True)
+    s = FijiSegmentedDataToH5File(h5, TEST_MEASURE, pd.read_csv)
+    s.set_dict(TEST_FIJI)
+    
+    with h5 as h:
+        s.write_all_pore_descriptors()
+        h.write_created()
+        h.write_name("Test-Dataset")
+        h.write_modified()
+        h.inspect()
+        print(h.read("common/modified"))
+        print(h.read("common/created"))
+
+
+def read_voxels():
+    h5 = H5File(TEST_H5, "a", overwrite=False)
+    s = FijiSegmentedDataToH5File(h5, TEST_VOXELS, pd.read_csv)
+    s.set_dict(TEST_FIJI)
+    
+    with h5 as h:
+        s.set_surface_label(2)
+        s.write_pore_voxels()
+        s.write_surface_voxels()
+        h.write_modified()
+        # h.inspect()
+
+
+def validate_voxels():
+    h5 = H5File(TEST_H5, "a", overwrite=False)
+    pd_voxels = pd.read_csv(TEST_VOXELS)
+    print(pd_voxels.query("Label != 2").shape)
+    print(pd_voxels.query("Label == 2").shape)
+
+    with h5 as h:
+        h.inspect()
+        print(h.read("ct/pores/voxels").shape)
+        print(h.read("ct/surface/voxels").shape)
+        print(h.read("ct/pores/offsets").shape)
+
+        pore_id = list(h.read("ct/pores/ID"))
+        voxels = h.read("ct/pores/voxels")
+        offsets = h.read("ct/pores/offsets")
+
+        for p in pore_id:
+            idx = pore_id.index(p)
+            start = offsets[idx]
+            end = offsets[idx + 1]
+
+            vox = voxels[start: end]
+            
+            assert p in pd_voxels.query("Label != 2")["Label"].to_list()
+            pd_vox = pd_voxels.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
+            diff = vox - pd_vox
+            # print(diff)
+            assert np.all(diff == 0)
+
+
 if __name__ == "__main__":
     # print("=== Test open/close ===")
     # test_h5file_open_close()
@@ -225,25 +298,13 @@ if __name__ == "__main__":
 
     # print("\n=== Test cleanup ===")
     # test_cleanup()
-    
-    # h5 = H5File(TEST_H5, "w", overwrite=True)
-    # s = FijiSegmentedDataToH5File(h5, TEST_FILE, pd.read_csv)
-    # s.set_dict(YAML_FILE)
-    # with h5 as h5:
-    #     s.set_surface_label(2)
-    #     # s.write_all_pore_descriptors()
-    #     # s.write_surface_voxels()
-    #     s.write_pore_voxels()
-    #     # c = s.get_columns(["CX (pix)"])
-    #     # s.to_h5("/ct/surface/", "hello", c)
-    #     print(sorted(set(h5.read("/ct/pores/voxels").squeeze())))
-    #     h5.inspect()
 
+    # print("\n=== Read descriptors ===")
+    # read_descriptors()
 
-    h5 = H5File(TEST_H5, "a", overwrite=True)
-    # s = FijiSegmentedDataToH5File(h5, "/home/ale/Desktop/example/prova.ods", pd.read_excel)
-    # s.set_dict("../../config/vg-keys.yaml")
-    with h5 as h5:
-        # s.write_all_pore_descriptors()
-        print(h5.read("ct/pores/ID"))
-        h5.inspect()
+    # print("\n=== Read voxels ===")
+    # read_voxels()
+
+    # print("\n=== Validate voxels ===")
+    # validate_voxels()
+    ...
