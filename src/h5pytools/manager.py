@@ -275,4 +275,5 @@ if __name__ == "__main__":
     # test_write_and_read()
     # test_list_datasets()
     # test_read_datasets_in_group()
-    test_delete_file()
+    # test_delete_file()
+    ...
