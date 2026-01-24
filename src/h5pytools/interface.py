@@ -226,15 +226,24 @@ if __name__ == "__main__":
     # print("\n=== Test cleanup ===")
     # test_cleanup()
     
-    h5 = H5File(TEST_H5, "w", overwrite=True)
-    s = FijiSegmentedDataToH5File(h5, TEST_FILE, pd.read_csv)
-    s.set_dict(YAML_FILE)
+    # h5 = H5File(TEST_H5, "w", overwrite=True)
+    # s = FijiSegmentedDataToH5File(h5, TEST_FILE, pd.read_csv)
+    # s.set_dict(YAML_FILE)
+    # with h5 as h5:
+    #     s.set_surface_label(2)
+    #     # s.write_all_pore_descriptors()
+    #     # s.write_surface_voxels()
+    #     s.write_pore_voxels()
+    #     # c = s.get_columns(["CX (pix)"])
+    #     # s.to_h5("/ct/surface/", "hello", c)
+    #     print(sorted(set(h5.read("/ct/pores/voxels").squeeze())))
+    #     h5.inspect()
+
+
+    h5 = H5File(TEST_H5, "a", overwrite=True)
+    # s = FijiSegmentedDataToH5File(h5, "/home/ale/Desktop/example/prova.ods", pd.read_excel)
+    # s.set_dict("../../config/vg-keys.yaml")
     with h5 as h5:
-        s.set_surface_label(2)
         # s.write_all_pore_descriptors()
-        # s.write_surface_voxels()
-        s.write_pore_voxels()
-        # c = s.get_columns(["CX (pix)"])
-        # s.to_h5("/ct/surface/", "hello", c)
-        print(sorted(set(h5.read("/ct/pores/voxels").squeeze())))
+        print(h5.read("ct/pores/ID"))
         h5.inspect()

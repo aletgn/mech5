@@ -1,0 +1,58 @@
+Probability: probability
+
+"Radius [µm]": radius_unit
+"Diameter [µm]": diameter_unit
+"Equivalent diameter [µm]": eq_diameter_unit
+
+"Center x [µm]": cx_unit
+"Center y [µm]": cy_unit
+"Center z [µm]": cz_unit
+
+"Volume [µm³]": volume_unit
+Voxel: voxels
+
+"Surface [µm²]": surface_unit
+Classification: classification
+"Gap [µm]": gap
+
+Compactness: compactness
+Sphericity: sphericity
+
+"Pos. x [µm]": pos_x_unit
+"Pos. y [µm]": pos_y_unit
+"Pos. z [µm]": pos_z_unit
+
+"Projected size x [µm]": proj_size_x_unit
+"Projected size y [µm]": proj_size_y_unit
+"Projected size z [µm]": proj_size_z_unit
+
+"PCA deviation 1 [µm]": pca_dev_1_unit
+"PCA deviation 2 [µm]": pca_dev_2_unit
+"PCA deviation 3 [µm]": pca_dev_3_unit
+
+"PCA max. deviation ratio [%]": pca_dev_max_ratio
+"PCA min. deviation ratio [%]": pca_dev_min_ratio
+
+"Min. gray value": gray_min
+"Max. gray value": gray_max
+"Mean gray value": gray_mean
+"Deviation of gray values": gray_dev
+
+Label: ID
+
+"Min. thickness [µm]": thickness_min
+"Max. thickness [µm]": thickness_max
+"Mean thickness [µm]": thickness_mean
+
+"Relative diameter": relative_diameter
+"Cut surface [µm²]": cut_surface_unit
+
+"Min. edge distance (inside) [µm]": edge_dist_min_inside_unit
+"Min. edge distance (outside) [µm]": edge_dist_min_outside_unit
+"Max. edge distance (cut) [µm]": edge_dist_max_cut_unit
+
+"Projected area (yz-plane) [µm²]": proj_area_yz_unit
+"Projected area (xz-plane) [µm²]": proj_area_xz_unit
+"Projected area (xy-plane) [µm²]": proj_area_xy_unit
+
+mur_xy: mur_xy_unit
