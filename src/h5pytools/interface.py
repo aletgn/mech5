@@ -72,14 +72,14 @@ class SpreadsheetToH5File:
             self._dict = yaml.safe_load(f)
 
 
-    def get_columns(self, columns: Union[str, List], query: str = "") -> np.ndarray:
+    def get_columns(self, col_names: Union[str, List], query: str = "") -> np.ndarray:
         """
         Return one or more columns from the DataFrame as a NumPy array,
         optionally filtered by a query string.
 
         Parameters
         ----------
-        columns : str or list of str
+        col_names : str or list of str
             Column(s) to extract.
         query : str, optional
             Query string to filter rows, by default "" (no filtering).
@@ -90,27 +90,10 @@ class SpreadsheetToH5File:
             Array of column data. For multiple columns, shape is (n_rows, n_columns).
         """
         series: pd.Series = self.data.query(query) if query else self.data
-        return series[columns].to_numpy()
+        return series[col_names].to_numpy()
 
 
-    def columns_to_h5(self, path: str, columns: Union[str, List], query: str = "") -> None:
-        """
-        Write selected column(s) to the HDF5 file at the specified path.
-
-        Parameters
-        ----------
-        path : str
-            Path in the HDF5 file to store the column(s).
-        columns : str or list of str
-            Column(s) to write.
-        query : str, optional
-            Query string to filter rows before writing, by default "".
-        """
-        series = self.get_columns(columns, query)
-        self.to_h5(path, series)
-
-
-    def to_h5(self, path: str, column: np.ndarray) -> None:
+    def to_h5(self, path: str, dataset_name: str, column: np.ndarray) -> None:
         """
         Write a single column array to the HDF5 file.
 
@@ -121,25 +104,41 @@ class SpreadsheetToH5File:
         column : np.ndarray
             Array containing the column data.
         """
-        path = path
         if self._dict is None:
-            self.h5.write(self.h5._root + path, column)
+            self.h5.write(path + dataset_name, column)
             return
 
-        if path not in self._dict:
+        if dataset_name not in self._dict:
             return
 
-        self.h5.write(self.h5._root + self._dict[path], column)
+        self.h5.write(path + self._dict[dataset_name], column)
 
 
-    def all_columns_to_h5(self) -> None:
+    def columns_to_h5(self, path: str, dataset_name: str, col_names: Union[str, List], query: str = "") -> None:
+        """
+        Write selected column(s) to the HDF5 file at the specified path.
+
+        Parameters
+        ----------
+        path : str
+            Path in the HDF5 file to store the column(s).
+        col_names : str or list of str
+            Column(s) to write.
+        query : str, optional
+            Query string to filter rows before writing, by default "".
+        """
+        series = self.get_columns(col_names, query)
+        self.to_h5(path, dataset_name, series)
+
+
+    def all_columns_to_h5(self, path: str, query: str = "") -> None:
         """
         Write all columns in the DataFrame to the HDF5 file as separate datasets.
         """
-        cols = self.data.columns
-        for c in cols:
-            series = self.get_columns(c)
-            self.to_h5(c, series)
+        col_names = self.data.columns
+        for c in col_names:
+            series = self.get_columns(c, query)
+            self.to_h5(path, c, series)
 
 
 class FijiSegmentedDataToH5File(SpreadsheetToH5File):
@@ -147,23 +146,32 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
     def __init__(self, h5, spreadsheet, reader):
         super().__init__(h5, spreadsheet, reader)
-        self.h5._root = "/ct/"
-        self.h5._pores = self.h5._root + "pores/"
-        self.h5._surface = self.h5._root + "surface/"
+        
+        self._root = "ct/"
+        self._pores = self._root + "pores/"
+        self._surface =  self._root + "surface/"
+        self.surface_label = None
 
 
-    def set_voxel_size(self, ):
-        ...
+    def set_surface_label(self, surface_label: int) -> None:
+        self.surface_label = surface_label
+        self.h5.write(self._surface + "surface_label", surface_label)
 
 
-    def set_surface_label(self,):
-        ...
+    def write_all_pore_descriptors(self):
+        self.all_columns_to_h5(self._pores, "Label != @self.surface_label")
 
 
+    def write_pore_voxels(self):
+        self.columns_to_h5(self._pores, "voxels", ["Label"], "Label != @self.surface_label")
+
+
+    def write_surface_voxels(self):
+        self.columns_to_h5(self._surface, "voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
 
 
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
-TEST_FILE = "/home/ale/Desktop/example/measure.csv"
+TEST_FILE = "/home/ale/Desktop/example/voxels.csv"
 YAML_FILE = "../../config/fiji-keys.yaml"
 
 
@@ -217,4 +225,16 @@ if __name__ == "__main__":
 
     # print("\n=== Test cleanup ===")
     # test_cleanup()
-    ...
+    
+    h5 = H5File(TEST_H5, "w", overwrite=True)
+    s = FijiSegmentedDataToH5File(h5, TEST_FILE, pd.read_csv)
+    s.set_dict(YAML_FILE)
+    with h5 as h5:
+        s.set_surface_label(2)
+        # s.write_all_pore_descriptors()
+        # s.write_surface_voxels()
+        s.write_pore_voxels()
+        # c = s.get_columns(["CX (pix)"])
+        # s.to_h5("/ct/surface/", "hello", c)
+        print(sorted(set(h5.read("/ct/pores/voxels").squeeze())))
+        h5.inspect()

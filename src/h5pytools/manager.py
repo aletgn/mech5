@@ -44,7 +44,6 @@ class H5File:
         self.filename = filename
         self.mode = mode
         self.overwrite = overwrite
-        self._root = "/"
         self._file: Optional[h5py.File] = None
 
 
@@ -132,7 +131,7 @@ class H5File:
         Any
             Data contained in the dataset.
         """
-        return self.file[self._root + path][()]
+        return self.file[path][()]
 
 
     def write(self, path: str, data: Any) -> None:
@@ -147,7 +146,7 @@ class H5File:
             Data to write.
         """
         if path in self.file:
-            del self.file[self._root + path]
+            del self.file[path]
         self.file.create_dataset(path, data=data)
 
 
@@ -176,7 +175,7 @@ class H5File:
         List[str]
             List of dataset paths within the group.
         """
-        group = self.file[self._root + gpr_name]
+        group = self.file[gpr_name]
         return [gpr_name + "/" + key for key, item in group.items() if isinstance(item, h5py.Dataset)]
 
 
@@ -194,7 +193,7 @@ class H5File:
         Dict[str, np.ndarray]
             Dictionary mapping dataset names to their values.
         """
-        group = self.file[self._root + grp_name]
+        group = self.file[grp_name]
         out = {}
         for key, item in group.items():
             if isinstance(item, h5py.Dataset):
@@ -241,6 +240,7 @@ def test_write_and_read():
     with H5File(TEST_FILE, "a", overwrite=True) as h5:
         h5.write("my_dataset", data)
         read_data = h5.read("my_dataset")
+        h5.inspect()
     print("Original data:", data)
     print("Read data:", read_data)
     assert np.array_equal(data, read_data)
@@ -250,15 +250,17 @@ def test_list_datasets():
     with H5File(TEST_FILE, "w", overwrite=True) as h5:
         h5.write("group1/ds1", np.array([1]))
         h5.write("group1/ds2", np.array([2]))
+        h5.inspect()
         datasets = h5.list_datasets("group1")
     print("Datasets in group1:", datasets)
 
 
 def test_read_datasets_in_group():
     with H5File(TEST_FILE, "w", overwrite=True) as h5:
-        h5.write("group1/a", np.array([10, 20]))
-        h5.write("group1/b", np.array([30, 40]))
-        data_dict = h5.read_datasets_in_group("group1")
+        h5.write("ct/groupa/a", np.array([10, 20]))
+        h5.write("ct/groupa/b", np.array([30, 40]))
+        h5.inspect()
+        data_dict = h5.read_datasets_in_group("ct/groupa")
     print("Datasets read from group1:", data_dict)
 
 
@@ -271,9 +273,9 @@ def test_delete_file():
 
 
 if __name__ == "__main__":
-    # test_open_and_close()
-    # test_write_and_read()
-    # test_list_datasets()
-    # test_read_datasets_in_group()
-    # test_delete_file()
+    test_open_and_close()
+    test_write_and_read()
+    test_list_datasets()
+    test_read_datasets_in_group()
+    test_delete_file()
     ...

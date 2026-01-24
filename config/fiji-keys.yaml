@@ -25,3 +25,4 @@ Comp (pix): compactness_pix
 CompCorr (pix): compactness_corr_pix
 Comp (unit): compactness_unit
 CompDiscrete: compactness_discrete
+voxels: voxels
