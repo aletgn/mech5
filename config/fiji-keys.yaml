@@ -1,0 +1,27 @@
+Label: ID
+CX (pix): cx_pix
+CY (pix): cy_pix
+CZ (pix): cz_pix
+CX (unit): cx_unit
+CY (unit): cy_unit
+CZ (unit): cz_unit
+Xmin (pix): xmin_pix
+Ymin (pix): ymin_pix
+Zmin (pix): zmin_pix
+Xmax (pix): xmax_pix
+Ymax (pix): ymax_pix
+Zmax (pix): zmax_pix
+VolBounding (pix): vol_bounding_pix
+RatioVolbox: ratio_vol_box
+Vol (unit): volume_unit
+Vol (pix): volume_pix
+Surf (unit): surface_unit
+Surf (pix): surface_pix
+SurfCorr (pix): surface_corr_pix
+Spher (pix): sphericity_pix
+SpherCorr (pix): sphericity_corr_pix
+Spher (unit): sphericity_unit
+Comp (pix): compactness_pix
+CompCorr (pix): compactness_corr_pix
+Comp (unit): compactness_unit
+CompDiscrete: compactness_discrete
