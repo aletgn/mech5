@@ -107,6 +107,7 @@ class SpreadsheetToH5File:
         -------
         None
         """
+        dataset_name = dataset_name.replace("/", "")
         if self._dict is None:
             self.h5.write(path + dataset_name, column)
             return
@@ -114,7 +115,7 @@ class SpreadsheetToH5File:
         if dataset_name not in self._dict:
             return
 
-        self.h5.write(path + self._dict[dataset_name], column)
+        self.h5.write(f"{path}/{self._dict[dataset_name]}", column)
 
 
     def columns_to_h5(self, path: str, dataset_name: str, col_names: Union[str, List], query: str = "") -> None:
@@ -175,7 +176,7 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
     def set_surface_label(self, surface_label: int) -> None:
         self.surface_label = surface_label
-        self.h5.write(self.h5._surface + "surface_label", surface_label)
+        self.h5.write(self.h5._surface + "/surface_label", surface_label)
 
 
     def write_all_pore_descriptors(self):
@@ -183,7 +184,7 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
 
     def write_pore_voxels(self):
-        pore_id = self.h5.read(self.h5._pores + "ID")
+        pore_id = self.h5.read(self.h5._pores + "/ID")
         voxel_stack = []
         voxel_lengths = []
         voxel_offsets = []
@@ -194,11 +195,11 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
         offsets = np.zeros(len(voxel_lengths) + 1, dtype=int)
         offsets[1:] = np.cumsum(voxel_lengths)
-        self.columns_to_h5(self.h5._pores, "voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
-        self.h5.write(self.h5._pores + "offsets", offsets)
+        self.columns_to_h5(self.h5._pores, "/voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
+        self.h5.write(self.h5._pores + "/voxels_offsets", offsets)
 
     def write_surface_voxels(self):
-        self.columns_to_h5(self.h5._surface, "voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
+        self.columns_to_h5(self.h5._surface, "/voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
 
 
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
@@ -249,7 +250,7 @@ TEST_VOXELS = "/home/ale/Desktop/example/voxels.csv"
 TEST_FIJI = "../../config/fiji-keys.yaml"
 
 def read_descriptors():
-    h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=True)
+    h5 = SegmentedDatasetH5File(TEST_H5, "w", overwrite=True)
     s = FijiSegmentedDataToH5File(h5, TEST_MEASURE, pd.read_csv)
     s.set_dict(TEST_FIJI)
     
@@ -287,11 +288,11 @@ def validate_voxels():
         h.inspect()
         print(h.read("ct/pores/voxels").shape)
         print(h.read("ct/surface/voxels").shape)
-        print(h.read("ct/pores/offsets").shape)
+        print(h.read("ct/pores/voxels_offsets").shape)
 
         pore_id = list(h.read("ct/pores/ID"))
         voxels = h.read("ct/pores/voxels")
-        offsets = h.read("ct/pores/offsets")
+        offsets = h.read("ct/pores/voxels_offsets")
 
         for p in pore_id:
             idx = pore_id.index(p)
@@ -304,6 +305,14 @@ def validate_voxels():
             pd_vox = pd_voxels.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
             diff = vox - pd_vox
             # print(diff)
+            assert np.all(diff == 0)
+
+        for p in pore_id:
+            vox = h5.query_pore(p)["voxels"]
+            assert p in pd_voxels.query("Label != 2")["Label"].to_list()
+            pd_vox = pd_voxels.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
+            diff = vox - pd_vox
+            print(diff)
             assert np.all(diff == 0)
 
 
@@ -320,8 +329,8 @@ if __name__ == "__main__":
     # print("\n=== Test cleanup ===")
     # test_cleanup()
 
-    print("\n=== Read descriptors ===")
-    read_descriptors()
+    # print("\n=== Read descriptors ===")
+    # read_descriptors()
 
     # print("\n=== Read voxels ===")
     # read_voxels()

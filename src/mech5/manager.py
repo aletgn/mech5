@@ -273,9 +273,34 @@ class SegmentedDatasetH5File(H5File):
     def __init__(self, filename, mode, overwrite = False):
         super().__init__(filename, mode, overwrite)
 
-        self._root = "ct/"
-        self._pores = self._root + "pores/"
-        self._surface =  self._root + "surface/"
+        # default groups
+        self._root = "ct"
+        self._pores = f"{self._root}/pores"
+        self._surface =  f"{self._root}/surface"
+
+
+    def locate_pore(self, pore_id: int):
+        ids = self.read(self._pores + "/ID")
+        return np.where(ids == pore_id)[0].squeeze()
+
+
+    def query_pore_voxels(self, pore_id: int = None, pore_loc: int = None):
+        loc = pore_loc if pore_loc is not None else self.locate_pore(pore_id)
+        off = self.read(self._pores + "/voxels_offsets")
+        start = off[loc]
+        end = off[loc+1]
+        return self.read(self._pores + "/voxels")[start: end], [start, end]
+        
+
+    def query_pore(self, pore_id):
+        loc = self.locate_pore(pore_id)
+        pore = {}
+        for g in self.list_datasets(self._pores):
+            if "voxels" in g:
+                pore["voxels"], pore["voxels_offsets"] = self.query_pore_voxels(pore_loc=loc)
+            else:
+                pore[g.split("/")[-1]] = self.read(g)[loc]
+        return pore
 
 
 TEST_FILE =  "./testh5.h5"
@@ -339,10 +364,9 @@ def test_delete_file():
 
 
 def test_query():
-    with H5File("/home/ale/Desktop/example/test.h5", "r") as h5:
+    with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
         h5.inspect()
-        data, mask = h5.query("ct/pores/volume_pix", None)
-        print(data.shape, mask)
+        print(h5.query_pore(10))
 
 
 
@@ -365,6 +389,9 @@ if __name__ == "__main__":
     # print("\n=== Test delete file ===")
     # test_delete_file()
 
-    print("\n=== Test query file ===")
-    test_query()
+    # print("\n=== Test query file ===")
+    # test_query()
+
+    # print("\n=== Test query file ===")
+    # test_query()
     ...
