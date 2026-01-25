@@ -196,6 +196,25 @@ class H5File:
 
         self.file.visititems(print_name)
 
+    
+    def list_groups(self, gpr_name: str) -> List[str]:
+        """
+        List all subgroup names within a given HDF5 group.
+
+        Parameters
+        ----------
+        gpr_name : str
+            Name of the parent HDF5 group.
+
+        Returns
+        -------
+        List[str]
+            List of full paths to subgroups within the group.
+        """
+        group = self.file[gpr_name]
+        return [gpr_name + "/" + key for key, item in group.items() if isinstance(item, h5py.Group)]
+
+
 
     def list_datasets(self, gpr_name: str) -> List[str]:
         """
@@ -290,7 +309,7 @@ class H5File:
 class SegmentedDatasetH5File(H5File):
     """
     HDF5 file specialised for segmented datasets containing pores and optional surface data.
-    
+
     Provides utilities for locating pores, querying pore data, and reading voxel blocks.
     """
 
@@ -445,9 +464,19 @@ def test_delete_file():
 
 def test_query():
     with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
+        print(h5.query("ct/pores/volume_pix", lambda x: x > 27))
+
+
+def test_query_pore():
+    with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
         h5.inspect()
         print(h5.query_pore(10))
 
+
+def test_list_groups():
+    with H5File("/home/ale/Desktop/example/test.h5", "r", overwrite=True) as h5:
+        h5.inspect()
+        print(h5.list_groups("ct/"))
 
 
 if __name__ == "__main__":
@@ -469,9 +498,12 @@ if __name__ == "__main__":
     # print("\n=== Test delete file ===")
     # test_delete_file()
 
-    # print("\n=== Test query file ===")
-    # test_query()
+    print("\n=== Test query file ===")
+    test_query()
 
-    # print("\n=== Test query file ===")
-    # test_query()
+    # print("\n=== Test query pore ===")
+    # test_query_pore()
+
+    # print("\n=== Test list groups ===")
+    # test_list_groups()
     ...

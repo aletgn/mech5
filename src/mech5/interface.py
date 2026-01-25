@@ -189,10 +189,10 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
             If `h5` is not an instance of `SegmentedDatasetH5File`.
         """
         super().__init__(h5, spreadsheet, reader)
-        
+
         if not isinstance(h5, SegmentedDatasetH5File):
             raise NotImplementedError(f"{h5.__class__.__name__} not allowed.")
-        
+
         self.surface_label = None
 
 
@@ -215,7 +215,7 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
     def write_all_pore_descriptors(self) -> None:
         """
-        Write all pore descriptor columns to the HDF5 file, 
+        Write all pore descriptor columns to the HDF5 file,
         excluding the surface label.
 
         Returns
@@ -316,7 +316,7 @@ def read_descriptors():
     h5 = SegmentedDatasetH5File(TEST_H5, "w", overwrite=True)
     s = FijiSegmentedDataToH5File(h5, TEST_MEASURE, pd.read_csv)
     s.set_dict(TEST_FIJI)
-    
+
     with h5 as h:
         s.set_surface_label(2)
         h.write_created()
@@ -332,7 +332,7 @@ def read_voxels():
     h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=False)
     s = FijiSegmentedDataToH5File(h5, TEST_VOXELS, pd.read_csv)
     s.set_dict(TEST_FIJI)
-    
+
     with h5 as h:
         s.set_surface_label(2)
         s.write_pore_voxels()
@@ -363,7 +363,7 @@ def validate_voxels():
             end = offsets[idx + 1]
 
             vox = voxels[start: end]
-            
+
             assert p in pd_voxels.query("Label != 2")["Label"].to_list()
             pd_vox = pd_voxels.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
             diff = vox - pd_vox
