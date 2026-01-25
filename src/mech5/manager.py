@@ -235,10 +235,30 @@ class H5File:
             if isinstance(item, h5py.Dataset):
                 out[key] = item[()]
         return out
-    
+
 
     def query(self, path_to_group: str,
-              criterion: callable = None, **carg: Dict[str, Any]) -> Tuple[np.ndarray]:
+          criterion: callable = None, **carg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Query a dataset in an HDF5 group and return the filtered data and mask.
+
+        Parameters
+        ----------
+        path_to_group : str
+            Path to the HDF5 group or dataset to query.
+        criterion : callable, optional
+            Function that takes the dataset array and optional keyword arguments,
+            returning a boolean mask of the same length. If None, all rows are selected.
+        **carg : dict
+            Additional keyword arguments passed to `criterion`.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Tuple containing:
+            - Filtered data as a NumPy array.
+            - Boolean mask indicating which rows satisfy the criterion.
+        """
         data = self.read(path_to_group)
         mask = [True]*data.shape[0] if criterion is None else criterion(data, **carg)
         return data[mask], mask
@@ -268,31 +288,91 @@ class H5File:
 
 
 class SegmentedDatasetH5File(H5File):
-    """Pore and possibily surface"""
+    """
+    HDF5 file specialised for segmented datasets containing pores and optional surface data.
+    
+    Provides utilities for locating pores, querying pore data, and reading voxel blocks.
+    """
 
-    def __init__(self, filename, mode, overwrite = False):
+    def __init__(self, filename: str, mode: str, overwrite: bool = False) -> None:
         super().__init__(filename, mode, overwrite)
+        """
+        Initialise the segmented dataset HDF5 file and set default groups.
 
+        Parameters
+        ----------
+        filename : str
+            Path to the HDF5 file.
+        mode : str
+            File mode, e.g., 'r', 'w', 'a'.
+        overwrite : bool, optional
+            If True, overwrite existing file, by default False.
+        """
         # default groups
         self._root = "ct"
         self._pores = f"{self._root}/pores"
         self._surface =  f"{self._root}/surface"
 
 
-    def locate_pore(self, pore_id: int):
+    def locate_pore(self, pore_id: int) -> int:
+        """
+        Find the index of a pore in the pore ID array.
+
+        Parameters
+        ----------
+        pore_id : int
+            The unique pore identifier.
+
+        Returns
+        -------
+        int
+            Index of the pore in the ID array.
+        """
         ids = self.read(self._pores + "/ID")
         return np.where(ids == pore_id)[0].squeeze()
 
 
-    def query_pore_voxels(self, pore_id: int = None, pore_loc: int = None):
+    def query_pore_voxels(self, pore_id: int = None, pore_loc: int = None) -> Tuple[np.ndarray, List[int, int]]:
+        """
+        Retrieve the voxel coordinates for a single pore.
+
+        Parameters
+        ----------
+        pore_id : int, optional
+            ID of the pore. Required if `pore_loc` is not provided.
+        pore_loc : int, optional
+            Index of the pore. Overrides `pore_id` if provided.
+
+        Returns
+        -------
+        tuple[np.ndarray, list[int]]
+            - Array of voxel coordinates for the pore (X, Y, Z).
+            - List containing the start and end indices in the voxels dataset.
+        """
         loc = pore_loc if pore_loc is not None else self.locate_pore(pore_id)
         off = self.read(self._pores + "/voxels_offsets")
         start = off[loc]
         end = off[loc+1]
         return self.read(self._pores + "/voxels")[start: end], [start, end]
-        
 
-    def query_pore(self, pore_id):
+
+    def query_pore(self, pore_id: int) -> Dict[str, np.ndarray]:
+        """
+        Retrieve all stored attributes and voxel data for a single pore.
+
+        Parameters
+        ----------
+        pore_id : int
+            ID of the pore to query.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary containing pore data:
+            - Standard attributes are keyed by their dataset names.
+            - Voxel coordinates are stored under 'voxels'.
+            - Voxel offsets are stored under 'voxels_offsets'.
+        """
         loc = self.locate_pore(pore_id)
         pore = {}
         for g in self.list_datasets(self._pores):

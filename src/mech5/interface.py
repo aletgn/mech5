@@ -163,9 +163,31 @@ class SpreadsheetToH5File:
 
 
 class FijiSegmentedDataToH5File(SpreadsheetToH5File):
+    """
+    Class for writing segmented Fiji spreadsheet data to an HDF5 file.
+
+    Inherits from `SpreadsheetToH5File` and adds handling for pores and surface voxels.
+    """
 
 
-    def __init__(self, h5, spreadsheet, reader):
+    def __init__(self, h5, spreadsheet, reader: callable) -> None:
+        """
+        Initialise with an HDF5 file, spreadsheet, and reader.
+
+        Parameters
+        ----------
+        h5 : SegmentedDatasetH5File
+            HDF5 file object to write data to. Must be a SegmentedDatasetH5File.
+        spreadsheet : Any
+            Spreadsheet data source.
+        reader : callable
+            Object capable of reading spreadsheet data.
+
+        Raises
+        ------
+        NotImplementedError
+            If `h5` is not an instance of `SegmentedDatasetH5File`.
+        """
         super().__init__(h5, spreadsheet, reader)
         
         if not isinstance(h5, SegmentedDatasetH5File):
@@ -175,15 +197,46 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
 
     def set_surface_label(self, surface_label: int) -> None:
+        """
+        Set the surface label and write it to the HDF5 file.
+
+        Parameters
+        ----------
+        surface_label : int
+            Label value representing the surface.
+
+        Returns
+        -------
+        None
+        """
         self.surface_label = surface_label
         self.h5.write(self.h5._surface + "/surface_label", surface_label)
 
 
-    def write_all_pore_descriptors(self):
+    def write_all_pore_descriptors(self) -> None:
+        """
+        Write all pore descriptor columns to the HDF5 file, 
+        excluding the surface label.
+
+        Returns
+        -------
+        None
+        """
         self.all_columns_to_h5(self.h5._pores, "Label != @self.surface_label")
 
 
-    def write_pore_voxels(self):
+    def write_pore_voxels(self) -> None:
+        """
+        Write voxel coordinates for each pore to the HDF5 file.
+
+        - Computes offsets for each pore's voxel block.
+        - Writes X, Y, Z columns and the voxel offsets.
+        - Excludes voxels with the surface label.
+
+        Returns
+        -------
+        None
+        """
         pore_id = self.h5.read(self.h5._pores + "/ID")
         voxel_stack = []
         voxel_lengths = []
@@ -198,7 +251,17 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
         self.columns_to_h5(self.h5._pores, "/voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
         self.h5.write(self.h5._pores + "/voxels_offsets", offsets)
 
-    def write_surface_voxels(self):
+
+    def write_surface_voxels(self) -> None:
+        """
+        Write voxel coordinates corresponding to the surface label to the HDF5 file.
+
+        - Writes X, Y, Z columns for surface voxels only.
+
+        Returns
+        -------
+        None
+        """
         self.columns_to_h5(self.h5._surface, "/voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
 
 
