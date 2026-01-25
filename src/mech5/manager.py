@@ -267,6 +267,17 @@ class H5File:
         os.remove(self.filename)
 
 
+class SegmentedDatasetH5File(H5File):
+    """Pore and possibily surface"""
+
+    def __init__(self, filename, mode, overwrite = False):
+        super().__init__(filename, mode, overwrite)
+
+        self._root = "ct/"
+        self._pores = self._root + "pores/"
+        self._surface =  self._root + "surface/"
+
+
 TEST_FILE =  "./testh5.h5"
 
 
@@ -332,6 +343,7 @@ def test_query():
         h5.inspect()
         data, mask = h5.query("ct/pores/volume_pix", None)
         print(data.shape, mask)
+
 
 
 if __name__ == "__main__":

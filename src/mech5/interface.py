@@ -2,7 +2,7 @@ import os
 import sys
 sys.path.append('../../src/')
 
-from mech5.manager import H5File
+from mech5.manager import H5File, SegmentedDatasetH5File
 
 from typing import Union, List
 
@@ -167,23 +167,23 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
     def __init__(self, h5, spreadsheet, reader):
         super().__init__(h5, spreadsheet, reader)
         
-        self._root = "ct/"
-        self._pores = self._root + "pores/"
-        self._surface =  self._root + "surface/"
+        if not isinstance(h5, SegmentedDatasetH5File):
+            raise NotImplementedError(f"{h5.__class__.__name__} not allowed.")
+        
         self.surface_label = None
 
 
     def set_surface_label(self, surface_label: int) -> None:
         self.surface_label = surface_label
-        self.h5.write(self._surface + "surface_label", surface_label)
+        self.h5.write(self.h5._surface + "surface_label", surface_label)
 
 
     def write_all_pore_descriptors(self):
-        self.all_columns_to_h5(self._pores, "Label != @self.surface_label")
+        self.all_columns_to_h5(self.h5._pores, "Label != @self.surface_label")
 
 
     def write_pore_voxels(self):
-        pore_id = self.h5.read(self._pores + "ID")
+        pore_id = self.h5.read(self.h5._pores + "ID")
         voxel_stack = []
         voxel_lengths = []
         voxel_offsets = []
@@ -194,20 +194,20 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
         offsets = np.zeros(len(voxel_lengths) + 1, dtype=int)
         offsets[1:] = np.cumsum(voxel_lengths)
-        self.columns_to_h5(self._pores, "voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
-        self.h5.write(self._pores + "offsets", offsets)
+        self.columns_to_h5(self.h5._pores, "voxels", ["X", "Y", "Z"], "Label != @self.surface_label")
+        self.h5.write(self.h5._pores + "offsets", offsets)
 
     def write_surface_voxels(self):
-        self.columns_to_h5(self._surface, "voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
+        self.columns_to_h5(self.h5._surface, "voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
 
 
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
-TEST_FILE = "/home/ale/Desktop/example/voxels.csv"
+TEST_FILE = "/home/ale/Desktop/example/measure.csv"
 YAML_FILE = "../../config/fiji-keys.yaml"
 
 
 def test_h5file_open_close():
-    h5 = H5File(TEST_H5, "a", overwrite=True)
+    h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=True)
     h5.open()
     print("File opened:", isinstance(h5.file, type(h5.file)))
     h5.close()
@@ -215,17 +215,17 @@ def test_h5file_open_close():
 
 
 def test_spreadsheet_to_h5():
-    h5 = H5File(TEST_H5, "a", overwrite=True)
+    h5 = SegmentedDatasetH5File(TEST_H5, "w", overwrite=True)
     s = SpreadsheetToH5File(h5, TEST_FILE, pd.read_csv)
     s.set_dict(YAML_FILE)
     with h5 as h5:
-        s.all_columns_to_h5()
+        s.all_columns_to_h5("/")
         print("Inspecting HDF5 file hierarchy:")
         h5.inspect()
 
 
 def test_read_written_column():
-    h5 = H5File(TEST_H5, "r")
+    h5 = SegmentedDatasetH5File(TEST_H5, "r")
     h5.open()
     try:
         data = h5.read("cx_pix")
@@ -236,7 +236,7 @@ def test_read_written_column():
 
 
 def test_cleanup():
-    h5 = H5File(TEST_H5, "r")
+    h5 = SegmentedDatasetH5File(TEST_H5, "r")
     try:
         h5.delete_file()
         print("HDF5 file deleted:", not os.path.exists(TEST_H5))
@@ -249,13 +249,14 @@ TEST_VOXELS = "/home/ale/Desktop/example/voxels.csv"
 TEST_FIJI = "../../config/fiji-keys.yaml"
 
 def read_descriptors():
-    h5 = H5File(TEST_H5, "a", overwrite=True)
+    h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=True)
     s = FijiSegmentedDataToH5File(h5, TEST_MEASURE, pd.read_csv)
     s.set_dict(TEST_FIJI)
     
     with h5 as h:
-        s.write_all_pore_descriptors()
+        s.set_surface_label(2)
         h.write_created()
+        s.write_all_pore_descriptors()
         h.write_name("Test-Dataset")
         h.write_modified()
         h.inspect()
@@ -264,7 +265,7 @@ def read_descriptors():
 
 
 def read_voxels():
-    h5 = H5File(TEST_H5, "a", overwrite=False)
+    h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=False)
     s = FijiSegmentedDataToH5File(h5, TEST_VOXELS, pd.read_csv)
     s.set_dict(TEST_FIJI)
     
@@ -273,11 +274,11 @@ def read_voxels():
         s.write_pore_voxels()
         s.write_surface_voxels()
         h.write_modified()
-        # h.inspect()
+        h.inspect()
 
 
 def validate_voxels():
-    h5 = H5File(TEST_H5, "a", overwrite=False)
+    h5 = SegmentedDatasetH5File(TEST_H5, "a", overwrite=False)
     pd_voxels = pd.read_csv(TEST_VOXELS)
     print(pd_voxels.query("Label != 2").shape)
     print(pd_voxels.query("Label == 2").shape)
@@ -319,8 +320,8 @@ if __name__ == "__main__":
     # print("\n=== Test cleanup ===")
     # test_cleanup()
 
-    # print("\n=== Read descriptors ===")
-    # read_descriptors()
+    print("\n=== Read descriptors ===")
+    read_descriptors()
 
     # print("\n=== Read voxels ===")
     # read_voxels()
