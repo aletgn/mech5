@@ -8,7 +8,7 @@ from typing import Optional, Any, List, Dict
 
 import numpy as np
 
-from h5pytools.util import utc
+from mech5.util import utc
 
 
 class H5File:

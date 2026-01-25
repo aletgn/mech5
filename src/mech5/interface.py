@@ -2,7 +2,7 @@ import os
 import sys
 sys.path.append('../../src/')
 
-from h5pytools.manager import H5File
+from mech5.manager import H5File
 
 from typing import Union, List
 
