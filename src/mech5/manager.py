@@ -332,7 +332,7 @@ class SegmentedDatasetH5File(H5File):
         return np.where(ids == pore_id)[0].squeeze()
 
 
-    def query_pore_voxels(self, pore_id: int = None, pore_loc: int = None) -> Tuple[np.ndarray, List[int, int]]:
+    def query_pore_voxels(self, pore_id: int = None, pore_loc: int = None) -> Tuple[np.ndarray, List[int]]:
         """
         Retrieve the voxel coordinates for a single pore.
 
