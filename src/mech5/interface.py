@@ -54,19 +54,16 @@ class SpreadsheetToH5File:
 
     def set_dict(self, key_path: str) -> None:
         """
-        Write a column to HDF5 using _dict mapping if available.
+        Load a YAML file and assign its contents to the internal dictionary.
 
         Parameters
         ----------
-        name : str
-            Original column name.
-        column : np.ndarray
-            Column data to write.
+        key_path : str
+            Path to the YAML file containing the mapping to load.
 
-        Notes
-        -----
-        - If _dict is None, the column is written with its original name.
-        - If _dict is defined but does not contain 'name', the column is skipped.
+        Returns
+        -------
+        None
         """
         with open(key_path, "r") as f:
             self._dict = yaml.safe_load(f)
@@ -95,14 +92,20 @@ class SpreadsheetToH5File:
 
     def to_h5(self, path: str, dataset_name: str, column: np.ndarray) -> None:
         """
-        Write a single column array to the HDF5 file.
+        Write a single column array to an HDF5 file, using an optional name mapping.
 
         Parameters
         ----------
         path : str
-             in the HDF5 file.
+            Base path within the HDF5 file where the dataset will be written.
+        dataset_name : str
+            Name of the dataset to write, optionally remapped via the internal dictionary.
         column : np.ndarray
             Array containing the column data.
+
+        Returns
+        -------
+        None
         """
         if self._dict is None:
             self.h5.write(path + dataset_name, column)
@@ -116,16 +119,22 @@ class SpreadsheetToH5File:
 
     def columns_to_h5(self, path: str, dataset_name: str, col_names: Union[str, List], query: str = "") -> None:
         """
-        Write selected column(s) to the HDF5 file at the specified path.
+        Write one or more columns to an HDF5 file at the specified path.
 
         Parameters
         ----------
         path : str
-            Path in the HDF5 file to store the column(s).
+            Base path within the HDF5 file where the dataset will be written.
+        dataset_name : str
+            Name of the dataset under which the column data will be stored.
         col_names : str or list of str
-            Column(s) to write.
+            Column name or list of column names to write.
         query : str, optional
-            Query string to filter rows before writing, by default "".
+            Query string used to filter rows prior to writing, by default "".
+
+        Returns
+        -------
+        None
         """
         series = self.get_columns(col_names, query)
         self.to_h5(path, dataset_name, series)
@@ -133,7 +142,18 @@ class SpreadsheetToH5File:
 
     def all_columns_to_h5(self, path: str, query: str = "") -> None:
         """
-        Write all columns in the DataFrame to the HDF5 file as separate datasets.
+        Write all columns in the DataFrame to an HDF5 file as separate datasets.
+
+        Parameters
+        ----------
+        path : str
+            Base path within the HDF5 file where the datasets will be written.
+        query : str, optional
+            Query string used to filter rows prior to writing, by default "".
+
+        Returns
+        -------
+        None
         """
         col_names = self.data.columns
         for c in col_names:
