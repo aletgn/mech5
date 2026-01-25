@@ -4,7 +4,7 @@ sys.path.append('../../src/')
 import os
 
 import h5py
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Tuple
 
 import numpy as np
 
@@ -235,6 +235,13 @@ class H5File:
             if isinstance(item, h5py.Dataset):
                 out[key] = item[()]
         return out
+    
+
+    def query(self, path_to_group: str,
+              criterion: callable = None, **carg: Dict[str, Any]) -> Tuple[np.ndarray]:
+        data = self.read(path_to_group)
+        mask = [True]*data.shape[0] if criterion is None else criterion(data, **carg)
+        return data[mask], mask
 
 
     def delete_file(self) -> None:
@@ -320,22 +327,32 @@ def test_delete_file():
     print("File exists after delete:", os.path.exists(TEST_FILE))
 
 
+def test_query():
+    with H5File("/home/ale/Desktop/example/test.h5", "r") as h5:
+        h5.inspect()
+        data, mask = h5.query("ct/pores/volume_pix", None)
+        print(data.shape, mask)
+
+
 if __name__ == "__main__":
-    print("=== Test open and close ===")
-    test_open_and_close()
+    # print("=== Test open and close ===")
+    # test_open_and_close()
 
-    print("\n=== Test write and read ===")
-    test_write_and_read()
+    # print("\n=== Test write and read ===")
+    # test_write_and_read()
 
-    print("\n=== Test list datasets ===")
-    test_list_datasets()
+    # print("\n=== Test list datasets ===")
+    # test_list_datasets()
 
-    print("\n=== Test delete dataset ===")
-    test_delete_dataset()
+    # print("\n=== Test delete dataset ===")
+    # test_delete_dataset()
 
-    print("\n=== Test read datasets in group ===")
-    test_read_datasets_in_group()
+    # print("\n=== Test read datasets in group ===")
+    # test_read_datasets_in_group()
 
-    print("\n=== Test delete file ===")
-    test_delete_file()
+    # print("\n=== Test delete file ===")
+    # test_delete_file()
+
+    print("\n=== Test query file ===")
+    test_query()
     ...
