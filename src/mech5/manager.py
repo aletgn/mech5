@@ -169,6 +169,23 @@ class H5File:
         self.write("common/modified", utc())
 
 
+    def delete(self, path: str) -> None:
+        """
+        Delete a dataset or group from the HDF5 file.
+
+        Parameters
+        ----------
+        path : str
+            Absolute or relative path to the dataset or group to delete.
+
+        Returns
+        -------
+        None
+        """
+        if path in self.file:
+            del self.file[path]
+
+
     def inspect(self) -> None:
         """
         Print the hierarchy of the HDF5 file.
@@ -274,6 +291,18 @@ def test_list_datasets():
     print("Datasets in group1:", datasets)
 
 
+def test_delete_dataset():
+    with H5File(TEST_FILE, "w", overwrite=True) as h5:
+        h5.write("ct/groupa/a", np.array([10, 20]))
+        h5.write("ct/groupa/b", np.array([30, 40]))
+        assert "ct/groupa/a" in h5.file
+        assert "ct/groupa/b" in h5.file
+        h5.delete("ct/groupa/a")
+        assert "ct/groupa/a" not in h5.file
+        assert "ct/groupa/b" in h5.file
+        h5.inspect()
+
+
 def test_read_datasets_in_group():
     with H5File(TEST_FILE, "w", overwrite=True) as h5:
         h5.write("ct/groupa/a", np.array([10, 20]))
@@ -292,9 +321,21 @@ def test_delete_file():
 
 
 if __name__ == "__main__":
+    print("=== Test open and close ===")
     test_open_and_close()
+
+    print("\n=== Test write and read ===")
     test_write_and_read()
+
+    print("\n=== Test list datasets ===")
     test_list_datasets()
+
+    print("\n=== Test delete dataset ===")
+    test_delete_dataset()
+
+    print("\n=== Test read datasets in group ===")
     test_read_datasets_in_group()
+
+    print("\n=== Test delete file ===")
     test_delete_file()
     ...
