@@ -25,7 +25,7 @@ setup(
     packages=find_packages(where="src"),
     python_requires=">=3.10",
     install_requires=["numpy", "scipy", "matplotlib", 
-                      "pandas", "odfpy", "openpyxl", "h5py", "PyYAML"],   
+                      "pandas", "odfpy", "openpyxl", "h5py", "PyYAML", "tqdm"],   
     
     extras_require={"test" : ["notebook"],
                     "dev" : ["pytest", "twine", "setuptools", "build"]}

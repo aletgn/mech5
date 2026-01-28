@@ -1,8 +1,7 @@
 import os
 import sys
 sys.path.append('../../src/')
-
-from mech5.manager import H5File, SegmentedDatasetH5File
+from pathlib import Path
 
 from typing import Union, List
 
@@ -10,6 +9,10 @@ import numpy as np
 import pandas as pd
 
 import yaml
+from tqdm import tqdm
+
+from mech5.manager import H5File, SegmentedDatasetH5File
+
 
 class SpreadsheetToH5File:
     """
@@ -195,6 +198,9 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
 
         self.surface_label = None
 
+        config_path = Path(__file__).resolve().parents[2] / "config" / "fiji-keys.yaml"
+        self.set_dict(config_path)
+
 
     def set_surface_label(self, surface_label: int) -> None:
         """
@@ -211,6 +217,17 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
         """
         self.surface_label = surface_label
         self.h5.write(self.h5._surface + "/surface_label", surface_label)
+
+
+    def check_surface_label(self):
+        if self.surface_label is None:
+            try:
+                self.surface_label = self.h5.read(self.h5._surface + "/surface_label")
+                print(f"Found surface label in dataset: {self.surface_label}.")
+            except:
+                raise Exception("Surface label not found.")
+        else:
+            print(f"Surface label: {self.surface_label}")
 
 
     def write_all_pore_descriptors(self) -> None:
@@ -237,11 +254,12 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
         -------
         None
         """
+        self.check_surface_label()
         pore_id = self.h5.read(self.h5._pores + "/ID")
         voxel_stack = []
         voxel_lengths = []
         voxel_offsets = []
-        for p in pore_id:
+        for p in tqdm(pore_id, desc="Processing pores"):
             voxels = self.data.query("Label == @p")[["X", "Y", "Z"]].to_numpy()
             voxel_stack.append(voxels)
             voxel_lengths.append(voxels.shape[0])
@@ -262,6 +280,7 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
         -------
         None
         """
+        self.check_surface_label()
         self.columns_to_h5(self.h5._surface, "/voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
 
 
