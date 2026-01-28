@@ -1,4 +1,4 @@
-# MECH5: MECHanical H5
+# MECH5: MEChanical H5
 
 This package provides utilities to manage `H5` datasets for collating data from various types of mechanical characterisation methods.
 
