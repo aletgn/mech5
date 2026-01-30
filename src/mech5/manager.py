@@ -4,11 +4,11 @@ sys.path.append('../../src/')
 import os
 
 import h5py
-from typing import Optional, Any, List, Dict, Tuple
+from typing import Optional, Any, List, Dict, Tuple, Union
 
 import numpy as np
 
-from mech5.util import utc
+from mech5.util import utc, Mask, Criterion
 
 
 class H5File:
@@ -255,8 +255,7 @@ class H5File:
         return out
 
 
-    def query(self, path_to_group: str,
-          criterion: callable = None, **carg: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+    def query(self, path_to_group: str, protocol: Union[callable, Criterion, Mask]) -> Tuple[np.ndarray, np.ndarray]:
         """
         Query a dataset in an HDF5 group and return the filtered data and mask.
 
@@ -264,11 +263,8 @@ class H5File:
         ----------
         path_to_group : str
             Path to the HDF5 group or dataset to query.
-        criterion : callable, optional
-            Function that takes the dataset array and optional keyword arguments,
-            returning a boolean mask of the same length. If None, all rows are selected.
-        **carg : dict
-            Additional keyword arguments passed to `criterion`.
+        protocol : callable or class
+            class with __call__ method to provide a mask (see util module).
 
         Returns
         -------
@@ -278,7 +274,7 @@ class H5File:
             - Boolean mask indicating which rows satisfy the criterion.
         """
         data = self.read(path_to_group)
-        mask = [True]*data.shape[0] if criterion is None else criterion(data, **carg)
+        mask = protocol(data)
         return data[mask], mask
 
 
@@ -538,8 +534,12 @@ def test_delete_file():
 
 
 def test_query():
+    
     with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
-        print(h5.query("ct/pores/volume_pix", lambda x: x > 27))
+        list_ = [False]*39330
+        list_[0] = True
+        print(h5.query("ct/pores/volume_pix", Criterion(lambda x: x > 27)))
+        print(h5.query("ct/pores/volume_pix", Mask(list_)))
 
 
 def test_query_pore():
@@ -551,7 +551,7 @@ def test_query_pore():
 def test_list_groups():
     with H5File("/home/ale/Desktop/example/test.h5", "r", overwrite=True) as h5:
         h5.inspect()
-        print(h5.list_groups("ct/"))
+        print(h5.list_groups("/ct"))
 
 
 if __name__ == "__main__":
@@ -573,8 +573,8 @@ if __name__ == "__main__":
     # print("\n=== Test delete file ===")
     # test_delete_file()
 
-    print("\n=== Test query file ===")
-    test_query()
+    # print("\n=== Test query file ===")
+    # test_query()
 
     # print("\n=== Test query pore ===")
     # test_query_pore()
