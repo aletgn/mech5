@@ -33,8 +33,6 @@ class Criterion:
     __call__(data)
         Apply the criterion to the provided data and return a boolean mask.
     """
-
-    
     def __init__(self, criterion: callable, **cargs: Dict[str, Any]) -> None:
         self.criterion = criterion
         self.cargs = cargs
@@ -63,6 +61,19 @@ class Mask:
 
     def __call__(self, data: np.ndarray = None) -> np.ndarray:
         return self.mask
+
+
+class TrueMask:
+    """
+    A mask that selects all elements (no-op).
+
+    Methods
+    -------
+    __call__(data)
+        Return a boolean array of all True, same length as data.
+    """
+    def __call__(self, data: np.ndarray) -> np.ndarray:
+        return np.ones(data.shape[0], dtype=bool)
 
 
 def test_protocols_instance():
