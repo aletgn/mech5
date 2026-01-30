@@ -119,7 +119,7 @@ class H5File:
         return self._file
 
 
-    def read(self, path: str) -> Any:
+    def read(self, path: str) -> np.ndarray:
         """
         Read a dataset from the file.
 
@@ -196,7 +196,7 @@ class H5File:
 
         self.file.visititems(print_name)
 
-    
+
     def list_groups(self, gpr_name: str) -> List[str]:
         """
         List all subgroup names within a given HDF5 group.
@@ -213,7 +213,6 @@ class H5File:
         """
         group = self.file[gpr_name]
         return [gpr_name + "/" + key for key, item in group.items() if isinstance(item, h5py.Group)]
-
 
 
     def list_datasets(self, gpr_name: str) -> List[str]:
@@ -400,6 +399,82 @@ class SegmentedDatasetH5File(H5File):
             else:
                 pore[g.split("/")[-1]] = self.read(g)[loc]
         return pore
+
+
+    def index_pores(self, mask: np.array) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Re-index pore voxel data after masking.
+
+        Given a boolean mask over pores, this method filters the voxel data and
+        recomputes the corresponding voxel offsets such that the remaining pores
+        are stored contiguously.
+
+        Parameters
+        ----------
+        mask : np.array
+            Boolean array indicating which pores to retain. Its length must match
+            the number of pores encoded by the voxel offsets.
+
+        Returns
+        -------
+        voxels : np.ndarray
+            Stacked array of voxel data corresponding to the retained pores.
+        offsets : np.ndarray
+            One-dimensional array of voxel offsets for the retained pores, with
+            length equal to the number of retained pores plus one.
+
+        Raises
+        ------
+        ValueError
+            If no pores are selected by the mask.
+        """
+        voxels = self.read(f"{self._pores}/voxels")
+        offsets = self.read(f"{self._pores}/voxels_offsets")
+        filtered_voxels = []
+        filtered_offsets = [0]
+        for keep, start, end in zip(mask, offsets[: -1], offsets[1: ]):
+            if keep:
+                filtered_voxels.append(voxels[start: end])
+                filtered_offsets.append(filtered_offsets[-1] + voxels[start:end].shape[0])
+        return np.vstack(filtered_voxels), np.array(filtered_offsets)
+
+
+    def mask_pores(self, path: str, criterion: callable) -> None:
+        """
+        Apply a mask to all pore-related datasets and re-index voxel data.
+
+        This method queries pore-level data using a user-defined criterion,
+        applies the resulting mask to all associated datasets, and rebuilds
+        the voxel and voxel offset arrays to remain consistent with the masked
+        pore set.
+
+        Parameters
+        ----------
+        path : str
+            Path used to query pore-level data on which the masking criterion
+            is applied.
+        criterion : callable
+            Function used to determine whether a pore is retained. It is passed
+            to the query mechanism and must be compatible with it.
+
+        Returns
+        -------
+        None
+        """
+        masked_data, mask = self.query(path, criterion)
+        for g in self.list_datasets(f"{self._pores}"):
+            if "voxels" in g:
+                # skip this and re-index below
+                ...
+            else:
+                # print(g, self.read(g)[mask].shape)
+                self.write(g, self.read(g)[mask])
+                ...
+
+        # re-index pores
+        voxels, offsets = self.index_pores(mask)
+        self.write(f"{self._pores}/voxels", voxels)
+        self.write(f"{self._pores}/voxels_offsets", offsets)
 
 
 TEST_FILE =  "./testh5.h5"
