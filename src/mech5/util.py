@@ -72,6 +72,9 @@ class TrueMask:
     __call__(data)
         Return a boolean array of all True, same length as data.
     """
+    def __init__(self) -> None:
+        pass
+
     def __call__(self, data: np.ndarray) -> np.ndarray:
         return np.ones(data.shape[0], dtype=bool)
 

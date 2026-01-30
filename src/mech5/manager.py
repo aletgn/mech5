@@ -8,7 +8,7 @@ from typing import Optional, Any, List, Dict, Tuple, Union
 
 import numpy as np
 
-from mech5.util import utc, Mask, Criterion
+from mech5.util import utc, Mask, Criterion, TrueMask
 
 
 class H5File:
@@ -46,6 +46,7 @@ class H5File:
         self.filename = filename
         self.mode = mode
         self.overwrite = overwrite
+        self.query_queue = TrueMask()
         self._file: Optional[h5py.File] = None
 
 
@@ -276,6 +277,10 @@ class H5File:
         data = self.read(path_to_group)
         mask = protocol(data)
         return data[mask], mask
+    
+
+    def load_query(self, protocol: Union[callable, Criterion, Mask]) -> None:
+        self.query_queue = protocol
 
 
     def delete_file(self) -> None:
@@ -534,12 +539,16 @@ def test_delete_file():
 
 
 def test_query():
-    
     with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
         list_ = [False]*39330
         list_[0] = True
         print(h5.query("ct/pores/volume_pix", Criterion(lambda x: x > 27)))
         print(h5.query("ct/pores/volume_pix", Mask(list_)))
+
+
+def test_true_query():
+    with SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r") as h5:
+        print(h5.query("ct/pores/volume_pix", TrueMask()))
 
 
 def test_query_pore():
@@ -575,6 +584,9 @@ if __name__ == "__main__":
 
     # print("\n=== Test query file ===")
     # test_query()
+
+    print("\n=== Test true query file ===")
+    test_true_query()
 
     # print("\n=== Test query pore ===")
     # test_query_pore()
