@@ -37,6 +37,7 @@ class Criterion:
         self.criterion = criterion
         self.cargs = cargs
 
+
     def __call__(self, data: np.ndarray) -> np.ndarray:
         mask = self.criterion(data, **self.cargs)
         return np.asarray(mask, dtype=bool)
@@ -58,6 +59,7 @@ class Mask:
     """
     def __init__(self, mask: np.ndarray) -> None:
         self.mask = np.asarray(mask, dtype=bool)
+
 
     def __call__(self, data: np.ndarray = None) -> np.ndarray:
         return self.mask

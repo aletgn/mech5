@@ -11,6 +11,8 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
+import pyvista as pv
+
 from mech5.manager import H5File, SegmentedDatasetH5File
 
 
@@ -282,6 +284,198 @@ class FijiSegmentedDataToH5File(SpreadsheetToH5File):
         """
         self.check_surface_label()
         self.columns_to_h5(self.h5._surface, "/voxels", ["X", "Y", "Z"], "Label == @self.surface_label")
+
+
+class ArrayToVTK:
+    """
+    Convert arrays of 3D points into VTK cube-based grids.
+
+    This class provides two conversion strategies depending on array size:
+    explicit cube merging for small arrays, and vectorised unstructured
+    hexahedral grid construction for large arrays.
+    """
+
+
+    def __init__(self, cell_side: float = 1.0) -> None:
+        """
+        Initialise the converter.
+
+        Parameters
+        ----------
+        cell_side : float, optional
+            Edge length of each cubic cell.
+        """
+        self.cell_side = cell_side
+
+
+    def small_array_to_cubes(self, array: np.ndarray) -> pv.PolyData:
+        """
+        Convert a small array of 3D points into merged cube geometry.
+
+        Each point is used as the centre of an axis-aligned cube. Individual
+        cube meshes are created and merged into a single PolyData object.
+
+        Parameters
+        ----------
+        array : numpy.ndarray
+            Array of shape (N, 3) containing cube centre coordinates.
+
+        Returns
+        -------
+        pyvista.PolyData
+            Merged cube geometry representing all input points.
+        """
+        assert array.shape[1] == 3
+        grids = []
+        for a in array:
+            cube = pv.Cube(center=(a[0], a[1], a[2]),
+                        x_length= 2 * self.cell_side/2,
+                        y_length= 2 * self.cell_side/2,
+                        z_length= 2 * self.cell_side/2)
+            grids.append(cube)
+        grid = pv.merge(grids)
+        return grid
+
+
+    def large_array_to_cubes(self, array: np.ndarray, samples: int = None) -> pv.UnstructuredGrid:
+        """
+        Convert a large array of 3D points into an unstructured hexahedral grid.
+
+        Cubes are constructed implicitly by defining shared point coordinates
+        and explicit hexahedral cell connectivity, providing a memory-efficient
+        representation suitable for large datasets. Optional random subsampling
+        may be applied prior to grid construction.
+
+        Parameters
+        ----------
+        array : numpy.ndarray
+            Array of shape (N, 3) containing cube centre coordinates.
+        samples : int or None, optional
+            Number of points to randomly sample from the input array. If None,
+            all points are used.
+
+        Returns
+        -------
+        pyvista.UnstructuredGrid
+            Unstructured grid containing hexahedral cells centred on the input
+            points.
+        """
+        N = array.shape[0]
+        assert array.shape[1] == 3
+
+        if samples is not None:
+            assert samples < N
+            mask = np.random.choice(N, samples, replace=False)
+            array = array[mask]
+            N = array.shape[0]
+            print(array.shape)
+
+        # cell geometry
+        vertices = np.array([[-1, -1, -1],
+                             [ 1, -1, -1],
+                             [ 1,  1, -1],
+                             [-1,  1, -1],
+                             [-1, -1,  1],
+                             [ 1, -1,  1],
+                             [ 1,  1,  1],
+                             [-1,  1,  1]]) * self.cell_side/2
+
+        points = (array[:, None, :] + vertices).reshape(-1, 3)
+        base = np.arange(0, 8 * N, 8)
+        cells = np.c_[np.full(N, 8),
+                      base + 0, base + 1, base + 2, base + 3,
+                      base + 4, base + 5, base + 6, base + 7]
+
+        grid = pv.UnstructuredGrid(cells,
+                                   np.full(N, pv.CellType.HEXAHEDRON),
+                                   points)
+        
+        return grid
+
+
+class SegmentedH5FileToVTK(ArrayToVTK):
+    """
+    Convert segmented HDF5 voxel datasets into VTK unstructured grids.
+
+    This class adapts voxel-based segmentation data stored in an HDF5 file
+    into VTK-compatible cube representations, optionally attaching per-voxel
+    metadata as cell data.
+    """
+
+    def __init__(self, h5: SegmentedDatasetH5File, cell_side: float = 1.):
+        """
+        Initialise the converter for a segmented HDF5 dataset.
+
+        Parameters
+        ----------
+        h5 : SegmentedDatasetH5File
+            HDF5 file interface providing access to segmented voxel data.
+        cell_side : float, optional
+            Edge length of each cubic voxel cell.
+        """
+        super().__init__(cell_side)
+        self.h5 = h5
+
+
+    def surface_voxels_to_vtu(self, samples: int) -> pv.UnstructuredGrid:
+        """
+        Convert surface voxels to a VTK unstructured grid.
+
+        Surface voxel centres are read from the HDF5 file and converted into
+        hexahedral cells. Optional random subsampling is applied prior to grid
+        construction.
+
+        Parameters
+        ----------
+        samples : int
+            Number of surface voxels to randomly sample.
+
+        Returns
+        -------
+        pyvista.UnstructuredGrid
+            Unstructured grid representing the sampled surface voxels.
+        """
+        voxels = self.h5.read(f"{self.h5._surface}/voxels")
+        return self.large_array_to_cubes(voxels, samples=samples)
+    
+
+    def pore_voxels_to_vtu(self, add_fields: bool = True) -> pv.UnstructuredGrid:
+        """
+        Convert pore voxels to a VTK unstructured grid.
+
+        Pore voxel centres are converted into hexahedral cells. When enabled,
+        per-object pore attributes stored in the HDF5 file are expanded to
+        per-voxel values using voxel offsets and attached as cell data.
+
+        Parameters
+        ----------
+        add_fields : bool, optional
+            If True, expand and attach pore-level datasets as per-voxel cell
+            data.
+
+        Returns
+        -------
+        pyvista.UnstructuredGrid
+            Unstructured grid representing pore voxels, optionally enriched
+            with cell data fields.
+        """
+        voxels = self.h5.read(f"{self.h5._pores}/voxels")
+        grid = self.large_array_to_cubes(voxels)
+        
+        if add_fields:
+            counts = np.diff(self.h5.read(f"{self.h5._pores}/voxels_offsets"))
+            for name in self.h5.list_datasets(self.h5._pores):
+                if "voxel" in name:
+                    ...
+                else:            
+                    obj_data = self.h5.read(name)
+                    # expand per-voxel
+                    voxel_data = np.repeat(obj_data, counts)
+                    if voxel_data.size != grid.n_cells:
+                        raise ValueError("Expanded field size does not match number of voxels")
+                    grid.cell_data[name] = voxel_data
+
+        return grid
 
 
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
