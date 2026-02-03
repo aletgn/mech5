@@ -1,51 +1,62 @@
 import os
 import sys
 sys.path.append('../../src/')
-from pathlib import Path
 
-from typing import Union, List
+from typing import Tuple
+from itertools import product
 
 import numpy as np
-import pandas as pd
-
-import yaml
-from tqdm import tqdm
-
-# import pyvista as pv
-
-from mech5.manager import H5File, SegmentedDatasetH5File
-
 from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
+
+from tqdm import tqdm
+
+from mech5.manager import H5File, SegmentedDatasetH5File
 
 
 class GeometryPostProcessor:
 
-    def __init__(self, cell_size: float = 1.):
+    def __init__(self, cell_size: float = 1.) -> None:
         self.cell_size = 1.
+        self.C = np.zeros(shape=(3,))
+        self.R = np.ones(shape=(3,3))
 
 
-    def decorate(self):
-        ...
-    
+    def decorate(self, point):
+        # offsets = np.array(list(product([-self.cell_size/2, self.cell_size/2],
+        #                                 repeat=3)))
+        # return point + offsets
+        vertices = np.array([
+                            [-1, -1, -1],
+                            [ 1, -1, -1],
+                            [ 1,  1, -1],
+                            [-1,  1, -1],
+                            [-1, -1,  1],
+                            [ 1, -1,  1],
+                            [ 1,  1,  1],
+                            [-1,  1,  1],
+                        ])
+        
+        return point + (self.cell_size / 2) * vertices
 
-    def make_tree(self, point_cloud: np.ndarray):
+
+    def make_tree(self, point_cloud: np.ndarray) -> None:
         self.tree = cKDTree(point_cloud)
         print("tree done")
 
 
-    def distance(self, point_cloud: np.ndarray, array: np.ndarray):
+    def distance(self, point_cloud: np.ndarray, array: np.ndarray) -> Tuple[np.ndarray]:
         distances, indices = self.tree.query(array)
-        distances = distances * self.cell_size  
+        distances = distances * self.cell_size
         nearest = point_cloud[indices]
         return distances, indices, nearest
-    
 
-    def fit_ellipse(self ):
+
+    def project(self, points: np.ndarray, n: np.ndarray, ):
         ...
 
 
-    def project(self):
+    def fit_ellipse(self, points):
         ...
 
 
@@ -55,7 +66,7 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         super().__init__(cell_size)
         self.h5 = h5
         self.surface = None
-    
+
 
     def make_tree(self, samples: int = None):
         surface = self.h5.read(f"{self.h5._surface}/voxels")
@@ -63,12 +74,12 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         if samples is not None and samples < len(surface):
             idx = np.random.choice(len(surface), size=samples, replace=False)
             self.surface = surface[idx]
-        
+
         else:
             self.surface = surface
-        
+
         return super().make_tree(self.surface)
-    
+
 
     def distance(self, pore_id):
         pore = self.h5.query_pore(pore_id)
@@ -89,11 +100,10 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
             indices.append(idx)
             nearest.append(n)
 
-        
+
         self.h5.write(f"{self.h5._pores}/distance", np.asarray(distances))
         self.h5.write(f"{self.h5._pores}/nearest", np.vstack(nearest))
-        
-    
+
 
 def test_tree():
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5", mode="r")
@@ -107,7 +117,7 @@ def test_tree():
 
 
 def test_distance():
-    
+
     surface = np.array([
         [0.0, 0.0, 0.0],
         [1.0, 0.0, 0.0],
@@ -153,14 +163,14 @@ def test_voxel_distance():
 
     with h5 as h:
         surface = h5.read("/ct/surface/voxels/")[: 1000]
-        
+
         processor.make_tree(1000)
-        distances, indices, nearest = processor.distance(2, 1000)
-        
+        distances, indices, nearest = processor.distance(2)
+
         pore = h.query_pore(2)
         centroid = np.asarray([pore["cx_pix"], pore["cy_pix"], pore["cz_pix"]])
         print(nearest)
-        
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         ax.scatter(surface[:, 0], surface[:, 1], surface[:, 2], marker="o", s=5, label="Surface")
@@ -188,7 +198,8 @@ def test_all_distances():
 
 
 def test_display_distances():
-    h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5", mode="r")
+    h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5",
+                                mode="r")
     with h5 as h:
         cx = h.read("/ct/pores/cx_pix")       # x-coordinates
         cy = h.read("/ct/pores/cy_pix")       # y-coordinates
@@ -212,14 +223,157 @@ def test_display_distances():
         ax.set_zlabel("Z (pixels)")
         ax.set_title("3D Pore Positions")
 
-        # plt.show()
-        
+        plt.show()
+
+
+def to_vtu(name, source):
+    from mech5.interface import ArrayToVTK, SegmentedH5FileToVTK
+    h5name = source + name
+    h5 = SegmentedDatasetH5File(h5name, "r", overwrite=False)
+    v = SegmentedH5FileToVTK(h5)
+    with h5 as h:
+        surface_voxels = v.surface_voxels_to_vtu(samples=100000)
+        surface_voxels.save("test_surface.vtu")
+
+        pore_voxels = v.pore_voxels_to_vtu()
+        pore_voxels.save("./test_pores.vtu")
+
+
+def test_decorate():
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    proc = GeometryPostProcessor()
+
+    centre = np.array([0.0, 0.0, 0.0])
+    points = proc.decorate(centre)
+
+    points = np.asarray(points)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
+
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2])
+    ax.scatter(centre[0], centre[1], centre[2])
+
+    faces = [
+        [points[0], points[1], points[5], points[4]],
+        [points[2], points[3], points[7], points[6]],
+        [points[0], points[3], points[7], points[4]],
+        [points[1], points[2], points[6], points[5]],
+        [points[0], points[1], points[2], points[3]],
+        [points[4], points[5], points[6], points[7]] 
+    ]
+
+    poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
+    ax.add_collection3d(poly)
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    plt.show()
+
+
+def test_project():
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    proc = GeometryPostProcessor()
+    o = np.array([0,0,0])
+    centre = np.array([10.0, 10.0, 10.0])
+    points = proc.decorate(centre)
+
+    n = np.array([0., 1., 0.])
+    n /= np.linalg.norm(n)
+
+    m = np.array([0., 0., 1.])
+    m /= np.linalg.norm(m)
+
+    l = np.cross(n, m)
+    distances = np.dot(points - o, n)
+    projected_3d = points - np.outer(distances, n)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
+
+    ax.scatter(points[:, 0], points[:, 1], points[:, 2])
+    ax.scatter(centre[0], centre[1], centre[2])
+    ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
+
+    faces = [
+        [points[0], points[1], points[5], points[4]],
+        [points[2], points[3], points[7], points[6]],
+        [points[0], points[3], points[7], points[4]],
+        [points[1], points[2], points[6], points[5]],
+        [points[0], points[1], points[2], points[3]],
+        [points[4], points[5], points[6], points[7]] 
+    ]
+
+    poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
+    ax.add_collection3d(poly)
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.axis("equal")
+
+    plt.show()
+
+
+def test_polycube():
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    proc = GeometryPostProcessor()
+    o = np.array([0,0,0])
+    
+    centre1 = np.array([1.0, 1.0, 1.0])
+    centre2 = centre1 + np.array([proc.cell_size, 0, 0])
+    centres = np.array([centre1, centre2])
+    print(centres)
+    points = proc.decorate(centres)
+
+    # n = np.array([0., 1., 0.])
+    # n /= np.linalg.norm(n)
+
+    # m = np.array([0., 0., 1.])
+    # m /= np.linalg.norm(m)
+
+    # l = np.cross(n, m)
+    # distances = np.dot(points - o, n)
+    # projected_3d = points - np.outer(distances, n)
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(projection="3d")
+
+    # ax.scatter(points[:, 0], points[:, 1], points[:, 2])
+    # ax.scatter(centre[0], centre[1], centre[2])
+    # ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
+
+    # faces = [
+    #     [points[0], points[1], points[5], points[4]],
+    #     [points[2], points[3], points[7], points[6]],
+    #     [points[0], points[3], points[7], points[4]],
+    #     [points[1], points[2], points[6], points[5]],
+    #     [points[0], points[1], points[2], points[3]],
+    #     [points[4], points[5], points[6], points[7]] 
+    # ]
+
+    # poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
+    # ax.add_collection3d(poly)
+
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
+    # ax.set_zlabel("Z")
+    # ax.axis("equal")
+
+    # plt.show()
 
 
 if __name__ == "__main__":
     # test_tree()
     # test_distance()
     # test_voxel_distance()
-    test_all_distances()
+    # test_all_distances()
     # test_display_distances()
-    ...
+    # to_vtu("cyl_3.7_27_v3.h5", "/home/ale/Desktop/example/")
+    # test_decorate()
+    # test_project()
+    test_polycube()

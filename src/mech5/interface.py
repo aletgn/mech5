@@ -465,9 +465,12 @@ class SegmentedH5FileToVTK(ArrayToVTK):
         if add_fields:
             counts = np.diff(self.h5.read(f"{self.h5._pores}/voxels_offsets"))
             for name in self.h5.list_datasets(self.h5._pores):
+                print(f"Saving dataset to vtu: {name}")
                 if "voxel" in name:
                     ...
-                else:            
+                elif "nearest" in name:
+                    ...
+                else:
                     obj_data = self.h5.read(name)
                     # expand per-voxel
                     voxel_data = np.repeat(obj_data, counts)
