@@ -202,3 +202,5 @@ cython_debug/
 .cursorindexingignore
 
 *.h5
+*.vtk
+*.vtu
