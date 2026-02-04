@@ -2,7 +2,7 @@ import os
 import sys
 sys.path.append('../../src/')
 
-from typing import Tuple
+from typing import Tuple, Union, List
 from itertools import product
 
 import numpy as np
@@ -17,15 +17,48 @@ from mech5.manager import H5File, SegmentedDatasetH5File
 
 
 class GeometryPostProcessor:
+    """
+    Post-processing utilities for voxel-based geometries.
 
+    This class provides methods to decorate voxel centres into cube vertices,
+    project voxel geometries onto planes, construct planar polygons, and compute
+    areas and unions in projected space. All geometric quantities are expressed
+    in physical units defined by ``cell_size``.
+    """
     def __init__(self, cell_size: float = 1.) -> None:
+        """
+        Initialise the geometry post-processor.
+
+        Parameters
+        ----------
+        cell_size : float, optional
+            Physical size of a voxel edge. All coordinates and areas are
+            expressed in units derived from this scale.
+        """
         self.cell_size = cell_size
         self.C = np.zeros(shape=(3, ))
         self.R = np.ones(shape=(3, 3))
         self.shape = None
 
 
-    def decorate(self, points):
+    def decorate(self, points: np.ndarray) -> np.ndarray:
+        """
+        Decorate voxel centres with their cube vertices.
+
+        Each input point is interpreted as a voxel centre in voxel units.
+        The method returns the eight cube vertices per voxel, scaled to
+        physical coordinates using ``cell_size``.
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, 3)
+            Voxel centre coordinates in voxel units.
+
+        Returns
+        -------
+        ndarray of shape (N, 8, 3)
+            Physical coordinates of the cube vertices for each voxel.
+        """
         # offsets = np.array(list(product([-self.cell_size/2, self.cell_size/2],
         #                                 repeat=3)))
         # return point + offsets
@@ -45,11 +78,40 @@ class GeometryPostProcessor:
         return self.cell_size * points[:, np.newaxis, :] + offsets[np.newaxis, :, :]
 
     def make_tree(self, point_cloud: np.ndarray) -> None:
+        """
+        Construct a KD-tree from a point cloud.
+
+        Parameters
+        ----------
+        point_cloud : ndarray of shape (N, 3)
+            Reference point cloud in voxel units.
+        """
         self.tree = cKDTree(point_cloud)
         print("tree done")
 
 
     def distance(self, point_cloud: np.ndarray, array: np.ndarray) -> Tuple[np.ndarray]:
+        """
+        Compute nearest-neighbour distances using the KD-tree.
+
+        Distances are returned in physical units.
+
+        Parameters
+        ----------
+        point_cloud : ndarray of shape (N, 3)
+            Reference point cloud in voxel units.
+        array : ndarray of shape (M, 3)
+            Query points in voxel units.
+
+        Returns
+        -------
+        distances : ndarray of shape (M,)
+            Euclidean distances to nearest neighbours in physical units.
+        indices : ndarray of shape (M,)
+            Indices of the nearest neighbours in the reference cloud.
+        nearest : ndarray of shape (M, 3)
+            Coordinates of the nearest neighbours in voxel units.
+        """
         distances, indices = self.tree.query(array)
         distances = distances * self.cell_size
         nearest = point_cloud[indices]
@@ -59,7 +121,36 @@ class GeometryPostProcessor:
     def project(self, points: np.ndarray,
                 n: np.ndarray, m: np.ndarray,
                 o: np.ndarray = np.zeros(shape=(3, ))) -> Tuple[np.ndarray]:
+        """
+        Project decorated voxel geometry onto a plane.
 
+        The plane is defined by an origin ``o`` and an orthonormal basis
+        constructed from vectors ``n`` (normal) and ``m`` (in-plane).
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, 3)
+            Voxel centres in voxel units.
+        n : ndarray of shape (3,)
+            Plane normal vector.
+        m : ndarray of shape (3,)
+            In-plane direction vector orthogonal to ``n``.
+        o : ndarray of shape (3,), optional
+            Origin of the projection plane in physical coordinates.
+
+        Returns
+        -------
+        decorated : ndarray of shape (N, 8, 3)
+            Decorated voxel vertices in physical coordinates.
+        decorated_flat : ndarray of shape (8N, 3)
+            Flattened decorated vertices.
+        distances : ndarray of shape (8N,)
+            Signed distances of vertices from the plane.
+        projected : ndarray of shape (8N, 3)
+            Orthogonal projection of vertices onto the plane.
+        plane_coords : ndarray of shape (8N, 3)
+            Coordinates in the plane reference frame.
+        """
         cols = points.shape[1]
         assert cols == 3
         
@@ -89,34 +180,112 @@ class GeometryPostProcessor:
 
 
     def polygon(self, points: np.ndarray):
+        """
+        Construct a convex hull polygon from planar points.
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, 2)
+            Planar coordinates.
+
+        Returns
+        -------
+        shapely.geometry.Polygon
+            Convex hull polygon.
+        """
         cols = points.shape[1]
         assert cols == 2
         return Polygon(points).convex_hull
 
 
-    def polygon_area(self, points: np.ndarray):
+    def polygon_area(self, points: np.ndarray) -> float:
+        """
+        Compute the area of a planar polygon.
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, 2)
+            Planar polygon vertices.
+
+        Returns
+        -------
+        float
+            Polygon area in physical units squared.
+        """
         return self.polygon(points).area
 
 
-    def polygon_vertices(self, points: np.ndarray):
+    def polygon_vertices(self, points: np.ndarray) -> np.ndarray:
+        """
+        Return polygon vertices without closure repetition.
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, 2)
+            Planar polygon vertices.
+
+        Returns
+        -------
+        ndarray of shape (M, 2)
+            Polygon vertices with the closing vertex removed.
+        """
         return np.array(self.polygon(points).exterior.coords)[0: -1]
 
 
-    def projected_2_polygons(self, points: np.ndarray):
+    def projected_2_polygons(self, points: np.ndarray) -> np.ndarray:
+        """
+        Reshape flattened projected points back to per-voxel polygons.
+
+        Parameters
+        ----------
+        points : ndarray of shape (8N, 2 or 3)
+            Flattened projected coordinates.
+
+        Returns
+        -------
+        ndarray
+            Reshaped array of projected voxel polygons.
+        """
         return points.reshape(self.shape)
 
 
-    def union_polygon(self, points: np.ndarray):
-        """wrap polygon for an array N x X x 2 decorated points where N is the numbers of polygons"""
+    def union_polygon(self, points: np.ndarray) -> None:
+        """
+        Compute the union of multiple projected polygons.
+
+        Parameters
+        ----------
+        points : ndarray of shape (N, M, 2)
+            Array of planar polygons, one per voxel.
+        """
         self.polygons = [self.polygon(p[:, :2]) for p in points]
         self.union = unary_union(self.polygons)
 
 
-    def union_area(self):
+    def union_area(self) -> float:
+        """
+        Return the area of the polygon union.
+
+        Returns
+        -------
+        float
+            Union area in physical units squared.
+        """
         return self.union.area
 
 
-    def union_vertices(self):
+    def union_vertices(self) -> Union[np.ndarray, List[np.ndarray]]:
+        """
+        Return vertices of the union polygon.
+
+        For simple polygons, vertices are returned directly. For disjoint
+        projections, a list of vertex arrays is returned.
+
+        Returns
+        -------
+        ndarray or list of ndarray
+            Union polygon vertices without closure repetition.
+        """
         """First and last vertex is repeated to close the polygon. Keep only once."""
         if self.union.geom_type == 'Polygon':
             print("Joint projection.")
@@ -134,14 +303,45 @@ class GeometryPostProcessor:
 
 
 class VoxelGeometryPostProcessor(GeometryPostProcessor):
+    """
+    Geometry post-processing utilities specialised for voxelised pore data.
 
-    def __init__(self, h5: SegmentedDatasetH5File, cell_size = 1) -> None:
+    This class extends ``GeometryPostProcessor`` by interfacing with an HDF5
+    segmented dataset, providing voxel-aware distance computations and planar
+    projections of pore geometries. All geometric operations are internally
+    performed in physical units derived from ``cell_size``.
+    """
+
+
+    def __init__(self, h5: SegmentedDatasetH5File, cell_size: float = 1.) -> None:
+        """
+        Initialise the voxel geometry post-processor.
+
+        Parameters
+        ----------
+        h5 : SegmentedDatasetH5File
+            Handle to the segmented HDF5 dataset containing voxel and pore data.
+        cell_size : float, optional
+            Physical size of a voxel edge.
+        """
         super().__init__(cell_size)
         self.h5 = h5
         self.surface = None
 
 
-    def make_tree(self, samples: int = None):
+    def make_tree(self, samples: int = None) -> None:
+        """
+        Construct a KD-tree from surface voxels.
+
+        Optionally subsamples the surface voxels before building the tree.
+        Surface coordinates are assumed to be expressed in voxel units.
+
+        Parameters
+        ----------
+        samples : int, optional
+            Number of surface voxels to randomly sample. If ``None``, all
+            surface voxels are used.
+        """
         surface = self.h5.read(f"{self.h5._surface}/voxels")
 
         if samples is not None and samples < len(surface):
@@ -154,14 +354,39 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         return super().make_tree(self.surface)
 
 
-    def distance(self, pore_id):
+    def distance(self, pore_id: int) -> Tuple[np.ndarray]:
+        """
+        Compute distance from a pore centre to the nearest surface voxel.
+
+        The pore centre is read in voxel units and distances are returned
+        in physical units.
+
+        Parameters
+        ----------
+        pore_id : int
+            Identifier of the pore.
+
+        Returns
+        -------
+        distances : ndarray
+            Distance to the nearest surface voxel in physical units.
+        indices : ndarray
+            Index of the nearest surface voxel.
+        nearest : ndarray
+            Coordinates of the nearest surface voxel in voxel units.
+        """
         pore = self.h5.query_pore(pore_id)
         array = np.asarray([pore["cx_pix"], pore["cy_pix"], pore["cz_pix"]])
         return super().distance(self.surface, array)
 
 
-    def all_distances(self):
-        """wraps distance to loop over all pores"""
+    def all_distances(self) -> None:
+        """
+        Compute distances for all pores in the dataset.
+
+        Distances are written to the HDF5 file both in voxel units and
+        physical units.
+        """
         pore_id = self.h5.read(f"{self.h5._root}/pores/ID")
         distances = []
         indices = []
@@ -178,7 +403,31 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         self.h5.write(f"{self.h5._pores}/nearest", np.vstack(nearest))
 
 
-    def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None):
+    def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> float:
+        """
+        Project a pore voxel geometry onto a plane and compute its area.
+
+        The pore is decorated into voxel cubes, projected onto the plane
+        defined by ``n`` and ``m``, and the union area of the projected
+        polygons is returned.
+
+        Parameters
+        ----------
+        pore_id : int
+            Identifier of the pore.
+        n : ndarray of shape (3,)
+            Plane normal vector.
+        m : ndarray of shape (3,)
+            In-plane direction vector orthogonal to ``n``.
+        o : ndarray of shape (3,), optional
+            Origin of the projection plane. If ``None``, the pore centroid
+            is used.
+
+        Returns
+        -------
+        float
+            Projected pore area in physical units squared.
+        """
         pore, _ = self.h5.query_pore_voxels(pore_id)
         if o is None:
             o = pore.mean(axis=0)
@@ -187,7 +436,27 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         return self.union_area() # unit!
     
     
-    def all_project_pore(self, n: np.ndarray, m: np.ndarray, o: np.ndarray = None):
+    def all_project_pore(self, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> List[float]:
+        """
+        Project all pores onto a plane and store projected areas.
+
+        Areas are stored both in physical units and voxel units. The square
+        root of the area is also stored as a characteristic projected length.
+
+        Parameters
+        ----------
+        n : ndarray of shape (3,)
+            Plane normal vector.
+        m : ndarray of shape (3,)
+            In-plane direction vector orthogonal to ``n``.
+        o : ndarray of shape (3,), optional
+            Origin of the projection plane.
+
+        Returns
+        -------
+        list of float
+            Projected pore areas in physical units squared.
+        """
         pore_id = self.h5.read(f"{self.h5._root}/pores/ID")
         normal_str = np.array2string(n, separator='_')
         area = []
@@ -567,7 +836,7 @@ def test_polycube():
 def test_project_pores():
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5",
-                                mode="a")
+                                mode="r")
     v = VoxelGeometryPostProcessor(h5, 3.7)
     with h5 as h:
         area = v.project_pore(2, np.array([1., 0., 0.]), np.array([0., 1., 0.]))
@@ -600,6 +869,6 @@ if __name__ == "__main__":
     # to_vtu("cyl_3.7_27_v3.h5", "/home/ale/Desktop/example/")
     # test_decorate()
     # test_project()
-    # test_polycube()
-    test_project_pores()
+    test_polycube()
+    # test_project_pores()
     ...
