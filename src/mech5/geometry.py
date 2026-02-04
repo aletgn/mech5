@@ -19,7 +19,7 @@ from mech5.manager import H5File, SegmentedDatasetH5File
 class GeometryPostProcessor:
 
     def __init__(self, cell_size: float = 1.) -> None:
-        self.cell_size = 1.
+        self.cell_size = cell_size
         self.C = np.zeros(shape=(3, ))
         self.R = np.ones(shape=(3, 3))
         self.shape = None
@@ -42,8 +42,7 @@ class GeometryPostProcessor:
 
         # return point + (self.cell_size / 2) * vertices
         offsets = (self.cell_size / 2) * vertices
-        return points[:, np.newaxis, :] + offsets[np.newaxis, :, :]
-
+        return self.cell_size * points[:, np.newaxis, :] + offsets[np.newaxis, :, :]
 
     def make_tree(self, point_cloud: np.ndarray) -> None:
         self.tree = cKDTree(point_cloud)
@@ -194,7 +193,10 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         area = []
         for p in tqdm(pore_id, desc=f"Projecting {normal_str}"):
             area.append(self.project_pore(p, n, m, o))
-        self.h5.write(f"{self.h5._pores}/proj_unit/{normal_str}", np.asarray(area))
+        self.h5.write(f"{self.h5._pores}/proj_unit_{normal_str}", np.asarray(area))
+        self.h5.write(f"{self.h5._pores}/mur_unit_{normal_str}", np.asarray(area)**0.5)
+        self.h5.write(f"{self.h5._pores}/proj_pix_{normal_str}", np.asarray(area)/(self.cell_size**2))
+        self.h5.write(f"{self.h5._pores}/mur_pix_{normal_str}", (np.asarray(area)**0.5)/(self.cell_size**2))
         return area
 
 
@@ -414,10 +416,10 @@ def test_project():
 def test_polycube():
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    proc = GeometryPostProcessor()
+    proc = GeometryPostProcessor(cell_size=3.)
     o = np.array([0., 0., 0.])
 
-    cell = proc.cell_size  # size of each cube
+    cell = 1  # size of each cube
     centre1 = np.array([1.0, 1.0, 1.0])
     centre2 = centre1 + np.array([cell, 0, 0])
     centre3 = centre1 + np.array([0, cell, 0])
@@ -433,6 +435,8 @@ def test_polycube():
     # Combine all cubes
     centres = np.array([centre1, centre2, centre3, centre4,
                         centre5, centre6, centre7, centre8, centre9])
+    
+    # centres = np.array([centre1, centre2])
 
     # o = centres.mean(axis=0)
 
@@ -473,7 +477,7 @@ def test_polycube():
     ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
     ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
 
-    ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
+    ax.scatter(centres[:, 0]*proc.cell_size, centres[:, 1]*proc.cell_size, centres[:, 2]*proc.cell_size)
     ax.scatter(ff[:, 0], ff[:, 1], ff[:, 2])
     ax.scatter(jj[:, 0], jj[:, 1], jj[:, 2], marker="o")
 
@@ -561,13 +565,30 @@ def test_polycube():
 
 
 def test_project_pores():
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5",
-                                mode="r")
+                                mode="a")
     v = VoxelGeometryPostProcessor(h5, 3.7)
     with h5 as h:
+        area = v.project_pore(2, np.array([1., 0., 0.]), np.array([0., 1., 0.]))
         v.all_project_pore(np.array([1., 0., 0.]), np.array([0., 1., 0.]))
         v.all_project_pore(np.array([0., 1., 0.]), np.array([0., 0., 1.]))
         v.all_project_pore(np.array([0., 0., 1.]), np.array([1., 0., 0.]))
+        # print(area.shape)
+        # fig = plt.figure()
+        # ax = fig.add_subplot(projection="3d")
+        # # ax.scatter(area[:, 0], area[:, 1])
+        # for p in area:
+        #     faces = [[p[0], p[1], p[5], p[4]],
+        #             [p[2], p[3], p[7], p[6]],
+        #             [p[0], p[3], p[7], p[4]],
+        #             [p[1], p[2], p[6], p[5]],
+        #             [p[0], p[1], p[2], p[3]],
+        #             [p[4], p[5], p[6], p[7]]
+        #     ]
+        #     poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
+        #     ax.add_collection3d(poly)
+        # plt.show()
 
 
 if __name__ == "__main__":
@@ -580,5 +601,5 @@ if __name__ == "__main__":
     # test_decorate()
     # test_project()
     # test_polycube()
-    # test_project_pores()
+    test_project_pores()
     ...
