@@ -18,8 +18,8 @@ class GeometryPostProcessor:
 
     def __init__(self, cell_size: float = 1.) -> None:
         self.cell_size = 1.
-        self.C = np.zeros(shape=(3,))
-        self.R = np.ones(shape=(3,3))
+        self.C = np.zeros(shape=(3, ))
+        self.R = np.ones(shape=(3, 3))
 
 
     def decorate(self, points):
@@ -54,7 +54,37 @@ class GeometryPostProcessor:
         return distances, indices, nearest
 
 
-    def project(self, points: np.ndarray, n: np.ndarray, ):
+    def project(self, points: np.ndarray,
+                n: np.ndarray, m: np.ndarray, 
+                o: np.ndarray = np.zeros(shape=(3, ))) -> Tuple[np.ndarray]:
+        
+        cols = points.shape[1]
+        assert cols == 3
+
+        # Plane normal
+        n = np.array([1., 1., 1.])
+        n /= np.linalg.norm(n)
+
+        # m to form a plane basis with n
+        m = np.array([-1., 1., 0.])
+        m /= np.linalg.norm(m)
+
+        # l to complete the basis
+        l = np.cross(n, m)
+
+        # Rotation matrix
+        R = np.vstack([l, m, n])
+
+        decorated = self.decorate(points)
+        decorated_flat = decorated.reshape(-1, cols)
+        distances = np.dot(decorated_flat - o, n)
+        projected = decorated_flat - np.outer(distances[:, None], n)
+        plane_coords = (projected - o) @ R.T
+
+        return decorated, decorated_flat, distances, projected, plane_coords
+
+
+    def polygon_area(self):
         ...
 
 
@@ -343,8 +373,7 @@ def test_polycube():
     centres = np.array([centre1, centre2, centre3, centre4,
                         centre5, centre6, centre7, centre8, centre9])
 
-    o = centres.mean(axis=0)
-    print(centres.mean(axis=0))
+    # o = centres.mean(axis=0)
 
     points = proc.decorate(centres)
     points_flat = proc.decorate(centres).reshape(-1, 3)
@@ -363,14 +392,26 @@ def test_polycube():
     R = np.vstack([l, m, n])
     coords = (projected_3d - o) @ R.T
 
+    pp, ff, dd, jj, cc = proc.project(centres, n, m, o)
+    # print(pp.shape, ff.shape, dd.shape, jj.shape, cc.shape)
+    # print(pp - points)
+    # print(ff - points_flat)
+    # print(dd - distances)
+    # print(jj - projected_3d)
+    # print(cc - coords)
+
+    """
     fig = plt.figure()
     ax = fig.add_subplot(projection="3d")
 
-    ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
-    ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
-    ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
+    # ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
+    # ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
 
-    for p in points:
+    ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
+    ax.scatter(ff[:, 0], ff[:, 1], ff[:, 2])
+    ax.scatter(jj[:, 0], jj[:, 1], jj[:, 2], marker="X")
+
+    for p in pp:
         faces = [[p[0], p[1], p[5], p[4]],
                  [p[2], p[3], p[7], p[6]],
                  [p[0], p[3], p[7], p[4]],
@@ -385,49 +426,50 @@ def test_polycube():
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.axis("equal")
+    """
 
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    for c in coords.reshape(points.shape):
-        ax.scatter(c[:, 0], c[:, 1])
+    # fig = plt.figure()
+    # ax = fig.add_subplot()
+    # for c in coords.reshape(points.shape):
+    #     ax.scatter(c[:, 0], c[:, 1])
 
-    from shapely.geometry import Polygon
-    from shapely.ops import unary_union
-    for c in coords.reshape(points.shape):
-        print(c.shape)
-        polygon = Polygon(c).convex_hull
-        vertices = np.array(polygon.exterior.coords)
-        # ax.scatter(vertices[:, 0], vertices[:, 1])
-        # ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
+    # from shapely.geometry import Polygon
+    # from shapely.ops import unary_union
+    # for c in coords.reshape(points.shape):
+    #     print(c.shape)
+    #     polygon = Polygon(c).convex_hull
+    #     vertices = np.array(polygon.exterior.coords)
+    #     # ax.scatter(vertices[:, 0], vertices[:, 1])
+    #     # ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
 
-    polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
-    union_poly = unary_union(polygons)
-    union_area = union_poly.area
-    print("Union area:", union_area)
+    # polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
+    # union_poly = unary_union(polygons)
+    # union_area = union_poly.area
+    # print("Union area:", union_area)
 
-    if union_poly.geom_type == 'Polygon':
-        print("joint projection")
-        vertices = np.array(union_poly.exterior.coords)
-        print(vertices[0: -1].shape)
+    # if union_poly.geom_type == 'Polygon':
+    #     print("joint projection")
+    #     vertices = np.array(union_poly.exterior.coords)
+    #     print(vertices[0: -1].shape)
 
-        ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
-                edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+    #     ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
+    #             edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
 
-    elif union_poly.geom_type == 'MultiPolygon':
-        print("disjoint projection")
-        for poly in union_poly.geoms:
-            verts = np.array(poly.exterior.coords)
-            print(verts[0: -1])
-            ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red', 
-                    facecolor='none', linewidth=2, label='Union', zorder=-1)
+    # elif union_poly.geom_type == 'MultiPolygon':
+    #     print("disjoint projection")
+    #     for poly in union_poly.geoms:
+    #         verts = np.array(poly.exterior.coords)
+    #         print(verts[0: -1])
+    #         ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red', 
+    #                 facecolor='none', linewidth=2, label='Union', zorder=-1)
 
 
-    # N = len(vertices)
-    # for i in range(N):
-    #     j = (i + 1) % N
-    #     d = np.linalg.norm(vertices[i] - vertices[j])
-    #     print(d)
-    ax.axis("equal")
+    # # N = len(vertices)
+    # # for i in range(N):
+    # #     j = (i + 1) % N
+    # #     d = np.linalg.norm(vertices[i] - vertices[j])
+    # #     print(d)
+    # ax.axis("equal")
 
     plt.show()
 
