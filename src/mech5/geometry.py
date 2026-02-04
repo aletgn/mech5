@@ -8,6 +8,8 @@ from itertools import product
 import numpy as np
 from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from tqdm import tqdm
 
@@ -20,6 +22,7 @@ class GeometryPostProcessor:
         self.cell_size = 1.
         self.C = np.zeros(shape=(3, ))
         self.R = np.ones(shape=(3, 3))
+        self.shape = None
 
 
     def decorate(self, points):
@@ -55,11 +58,12 @@ class GeometryPostProcessor:
 
 
     def project(self, points: np.ndarray,
-                n: np.ndarray, m: np.ndarray, 
+                n: np.ndarray, m: np.ndarray,
                 o: np.ndarray = np.zeros(shape=(3, ))) -> Tuple[np.ndarray]:
-        
+
         cols = points.shape[1]
         assert cols == 3
+        self.decorated_shape = points.shape
 
         # Plane normal
         n = np.array([1., 1., 1.])
@@ -84,8 +88,45 @@ class GeometryPostProcessor:
         return decorated, decorated_flat, distances, projected, plane_coords
 
 
-    def polygon_area(self):
-        ...
+    def polygon(self, points: np.ndarray):
+        cols = points.shape[1]
+        assert cols == 2
+        return Polygon(points).convex_hull
+
+
+    def polygon_area(self, points: np.ndarray):
+        return self.polygon(points).area
+
+
+    def polygon_vertices(self, points: np.ndarray):
+        return np.array(self.polygon(points).exterior.coords)[0: -1]
+
+
+    def projected_2_polygons(self, points: np.ndarray):
+        return points.reshape(self.shape)
+
+
+    def union_polygon(self, points: np.ndarray):
+        """wrap polygon for an array N x X x 2 decorated points where N is the numbers of polygons"""
+        self.polygons = [self.polygon(p[:, :2]) for p in points]
+        self.union = unary_union(self.polygons)
+
+
+    def union_area(self):
+        return self.union.area
+
+
+    def union_vertices(self):
+        """First and last vertex is repeated to close the polygon. Keep only once."""
+        if self.union.geom_type == 'Polygon':
+            print("Joint projection.")
+            return np.array(self.union.exterior.coords)[0: -1]
+
+        elif self.union.geom_type == 'MultiPolygon':
+            print("Disjoint projection")
+            return [np.array(poly.exterior.coords) for poly in self.union.geoms]
+        else:
+            raise Exception("Fatal error.")
 
 
     def fit_ellipse(self, points):
@@ -393,19 +434,18 @@ def test_polycube():
     coords = (projected_3d - o) @ R.T
 
     pp, ff, dd, jj, cc = proc.project(centres, n, m, o)
-    # print(pp.shape, ff.shape, dd.shape, jj.shape, cc.shape)
-    # print(pp - points)
-    # print(ff - points_flat)
-    # print(dd - distances)
-    # print(jj - projected_3d)
-    # print(cc - coords)
+    print(pp.shape, ff.shape, dd.shape, jj.shape, cc.shape)
+    assert np.all(pp - points == 0)
+    assert np.all(ff - points_flat == 0)
+    assert np.all(dd - distances == 0)
+    assert np.all(jj - projected_3d == 0)
+    assert np.all(cc - coords == 0)
 
-    """
     fig = plt.figure()
     ax = fig.add_subplot(projection="3d")
 
-    # ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
-    # ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
+    ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
+    ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
 
     ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
     ax.scatter(ff[:, 0], ff[:, 1], ff[:, 2])
@@ -426,51 +466,70 @@ def test_polycube():
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.axis("equal")
-    """
 
-    # fig = plt.figure()
-    # ax = fig.add_subplot()
-    # for c in coords.reshape(points.shape):
-    #     ax.scatter(c[:, 0], c[:, 1])
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    for c in coords.reshape(points.shape):
+        ax.scatter(c[:, 0], c[:, 1])
+    print(coords.reshape(points.shape).shape)
+    for c in cc.reshape(points.shape):
+        ax.scatter(c[:, 0], c[:, 1])
 
-    # from shapely.geometry import Polygon
-    # from shapely.ops import unary_union
-    # for c in coords.reshape(points.shape):
-    #     print(c.shape)
-    #     polygon = Polygon(c).convex_hull
-    #     vertices = np.array(polygon.exterior.coords)
-    #     # ax.scatter(vertices[:, 0], vertices[:, 1])
-    #     # ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
+    for c in coords.reshape(points.shape):
+        polygon = Polygon(c[:, :2]).convex_hull
+        polya = polygon.area
+        vertices = np.array(polygon.exterior.coords)
 
-    # polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
-    # union_poly = unary_union(polygons)
-    # union_area = union_poly.area
-    # print("Union area:", union_area)
+        poly = proc.polygon(c[:, :2])
+        area = proc.polygon_area(c[:, :2])
+        vert = proc.polygon_vertices(c[:, :2])
 
-    # if union_poly.geom_type == 'Polygon':
-    #     print("joint projection")
-    #     vertices = np.array(union_poly.exterior.coords)
-    #     print(vertices[0: -1].shape)
+        print(polya - area)
+        # print(vert - vertices)
 
-    #     ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
-    #             edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+        ax.scatter(vertices[:, 0], vertices[:, 1])
+        ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
 
-    # elif union_poly.geom_type == 'MultiPolygon':
-    #     print("disjoint projection")
-    #     for poly in union_poly.geoms:
-    #         verts = np.array(poly.exterior.coords)
-    #         print(verts[0: -1])
-    #         ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red', 
-    #                 facecolor='none', linewidth=2, label='Union', zorder=-1)
+        ax.scatter(vert[:, 0], vert[:, 1], marker="x")
+        ax.fill(vert[:, 0], vert[:, 1], alpha=0.2, edgecolor='r', zorder=0)
 
+    polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
+    union_poly = unary_union(polygons)
+    union_area = union_poly.area
+    print("Union area:", union_area)
 
-    # # N = len(vertices)
-    # # for i in range(N):
-    # #     j = (i + 1) % N
-    # #     d = np.linalg.norm(vertices[i] - vertices[j])
-    # #     print(d)
-    # ax.axis("equal")
+    proc.shape = points.shape
+    proc.union_polygon(proc.projected_2_polygons(coords))
+    aa = proc.union_area()
+    print(aa - union_area)
 
+    if union_poly.geom_type == 'Polygon':
+        print("joint projection")
+        vertices = np.array(union_poly.exterior.coords)
+        print(vertices[0: -1].shape)
+
+        ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
+                edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+        
+        vv = proc.union_vertices()
+        ax.fill(vv[:,0], vv[:,1], alpha=.1,
+                edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+
+    elif union_poly.geom_type == 'MultiPolygon':
+        print("disjoint projection")
+        for poly in union_poly.geoms:
+            verts = np.array(poly.exterior.coords)
+            # print(verts[0: -1].shape)
+            ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red',
+                    facecolor='none', linewidth=2, label='Union', zorder=-1)
+            
+
+        vv = proc.union_vertices()
+        for v in vv:
+            ax.fill(v[:, 0], v[:, 1], alpha=0.1, edgecolor='blue',
+                    facecolor='none', linewidth=2, label='Union', zorder=-1)
+
+    ax.axis("equal")
     plt.show()
 
 
