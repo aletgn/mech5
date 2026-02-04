@@ -337,10 +337,11 @@ def test_polycube():
     centre6 = centre2 + np.array([0, 0, cell])
     centre7 = centre3 + np.array([0, 0, cell])
     centre8 = centre4 + np.array([0, 0, cell])
+    centre9 = 5*centre4 + np.array([0, 0, cell])
 
     # Combine all cubes
     centres = np.array([centre1, centre2, centre3, centre4,
-                        centre5, centre6, centre7, centre8])
+                        centre5, centre6, centre7, centre8, centre9])
 
     o = centres.mean(axis=0)
     print(centres.mean(axis=0))
@@ -370,15 +371,13 @@ def test_polycube():
     ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
 
     for p in points:
-        faces = [
-            [p[0], p[1], p[5], p[4]],
-            [p[2], p[3], p[7], p[6]],
-            [p[0], p[3], p[7], p[4]],
-            [p[1], p[2], p[6], p[5]],
-            [p[0], p[1], p[2], p[3]],
-            [p[4], p[5], p[6], p[7]]
+        faces = [[p[0], p[1], p[5], p[4]],
+                 [p[2], p[3], p[7], p[6]],
+                 [p[0], p[3], p[7], p[4]],
+                 [p[1], p[2], p[6], p[5]],
+                 [p[0], p[1], p[2], p[3]],
+                 [p[4], p[5], p[6], p[7]]
         ]
-
         poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
         ax.add_collection3d(poly)
 
@@ -387,7 +386,6 @@ def test_polycube():
     ax.set_zlabel("Z")
     ax.axis("equal")
 
-
     fig = plt.figure()
     ax = fig.add_subplot()
     for c in coords.reshape(points.shape):
@@ -395,30 +393,40 @@ def test_polycube():
 
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
-    polygons = []
     for c in coords.reshape(points.shape):
         print(c.shape)
         polygon = Polygon(c).convex_hull
         vertices = np.array(polygon.exterior.coords)
-        # polygons.append(polygon)
-        ax.scatter(vertices[:, 0], vertices[:, 1])
-        ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
+        # ax.scatter(vertices[:, 0], vertices[:, 1])
+        # ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
 
     polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
     union_poly = unary_union(polygons)
     union_area = union_poly.area
     print("Union area:", union_area)
 
+    if union_poly.geom_type == 'Polygon':
+        print("joint projection")
+        vertices = np.array(union_poly.exterior.coords)
+        print(vertices[0: -1].shape)
 
-    vertices = np.array(union_poly.exterior.coords)
-    ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
-            edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+        ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
+                edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
 
-    N = len(vertices)
-    for i in range(N):
-        j = (i + 1) % N
-        d = np.linalg.norm(vertices[i] - vertices[j])
-        print(d)
+    elif union_poly.geom_type == 'MultiPolygon':
+        print("disjoint projection")
+        for poly in union_poly.geoms:
+            verts = np.array(poly.exterior.coords)
+            print(verts[0: -1])
+            ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red', 
+                    facecolor='none', linewidth=2, label='Union', zorder=-1)
+
+
+    # N = len(vertices)
+    # for i in range(N):
+    #     j = (i + 1) % N
+    #     d = np.linalg.norm(vertices[i] - vertices[j])
+    #     print(d)
     ax.axis("equal")
 
     plt.show()
