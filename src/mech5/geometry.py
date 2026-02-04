@@ -22,7 +22,7 @@ class GeometryPostProcessor:
         self.R = np.ones(shape=(3,3))
 
 
-    def decorate(self, point):
+    def decorate(self, points):
         # offsets = np.array(list(product([-self.cell_size/2, self.cell_size/2],
         #                                 repeat=3)))
         # return point + offsets
@@ -36,8 +36,10 @@ class GeometryPostProcessor:
                             [ 1,  1,  1],
                             [-1,  1,  1],
                         ])
-        
-        return point + (self.cell_size / 2) * vertices
+
+        # return point + (self.cell_size / 2) * vertices
+        offsets = (self.cell_size / 2) * vertices
+        return points[:, np.newaxis, :] + offsets[np.newaxis, :, :]
 
 
     def make_tree(self, point_cloud: np.ndarray) -> None:
@@ -260,7 +262,7 @@ def test_decorate():
         [points[0], points[3], points[7], points[4]],
         [points[1], points[2], points[6], points[5]],
         [points[0], points[1], points[2], points[3]],
-        [points[4], points[5], points[6], points[7]] 
+        [points[4], points[5], points[6], points[7]]
     ]
 
     poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
@@ -304,7 +306,7 @@ def test_project():
         [points[0], points[3], points[7], points[4]],
         [points[1], points[2], points[6], points[5]],
         [points[0], points[1], points[2], points[3]],
-        [points[4], points[5], points[6], points[7]] 
+        [points[4], points[5], points[6], points[7]]
     ]
 
     poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
@@ -322,49 +324,104 @@ def test_polycube():
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     proc = GeometryPostProcessor()
-    o = np.array([0,0,0])
-    
+    o = np.array([0., 0., 0.])
+
+    cell = proc.cell_size  # size of each cube
     centre1 = np.array([1.0, 1.0, 1.0])
-    centre2 = centre1 + np.array([proc.cell_size, 0, 0])
-    centres = np.array([centre1, centre2])
-    print(centres)
+    centre2 = centre1 + np.array([cell, 0, 0])
+    centre3 = centre1 + np.array([0, cell, 0])
+    centre4 = centre1 + np.array([cell, cell, 0])
+
+    # top layer (Z = 1.0 + cell)
+    centre5 = centre1 + np.array([0, 0, cell])
+    centre6 = centre2 + np.array([0, 0, cell])
+    centre7 = centre3 + np.array([0, 0, cell])
+    centre8 = centre4 + np.array([0, 0, cell])
+
+    # Combine all cubes
+    centres = np.array([centre1, centre2, centre3, centre4,
+                        centre5, centre6, centre7, centre8])
+
+    o = centres.mean(axis=0)
+    print(centres.mean(axis=0))
+
     points = proc.decorate(centres)
+    points_flat = proc.decorate(centres).reshape(-1, 3)
 
-    # n = np.array([0., 1., 0.])
-    # n /= np.linalg.norm(n)
+    n = np.array([1., 1., 1.])
+    n /= np.linalg.norm(n)
 
-    # m = np.array([0., 0., 1.])
-    # m /= np.linalg.norm(m)
+    m = np.array([-1., 1., 0.])
+    m /= np.linalg.norm(m)
 
-    # l = np.cross(n, m)
-    # distances = np.dot(points - o, n)
-    # projected_3d = points - np.outer(distances, n)
+    l = np.cross(n, m)
 
-    # fig = plt.figure()
-    # ax = fig.add_subplot(projection="3d")
+    distances = np.dot(points_flat - o, n)
+    projected_3d = points_flat - np.outer(distances[:, None], n)
 
-    # ax.scatter(points[:, 0], points[:, 1], points[:, 2])
-    # ax.scatter(centre[0], centre[1], centre[2])
-    # ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
+    R = np.vstack([l, m, n])
+    coords = (projected_3d - o) @ R.T
 
-    # faces = [
-    #     [points[0], points[1], points[5], points[4]],
-    #     [points[2], points[3], points[7], points[6]],
-    #     [points[0], points[3], points[7], points[4]],
-    #     [points[1], points[2], points[6], points[5]],
-    #     [points[0], points[1], points[2], points[3]],
-    #     [points[4], points[5], points[6], points[7]] 
-    # ]
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
 
-    # poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
-    # ax.add_collection3d(poly)
+    ax.scatter(points_flat[:, 0], points_flat[:, 1], points_flat[:, 2])
+    ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
+    ax.scatter(projected_3d[:, 0], projected_3d[:, 1], projected_3d[:, 2], marker="X")
 
-    # ax.set_xlabel("X")
-    # ax.set_ylabel("Y")
-    # ax.set_zlabel("Z")
-    # ax.axis("equal")
+    for p in points:
+        faces = [
+            [p[0], p[1], p[5], p[4]],
+            [p[2], p[3], p[7], p[6]],
+            [p[0], p[3], p[7], p[4]],
+            [p[1], p[2], p[6], p[5]],
+            [p[0], p[1], p[2], p[3]],
+            [p[4], p[5], p[6], p[7]]
+        ]
 
-    # plt.show()
+        poly = Poly3DCollection(faces, alpha=0.3, edgecolor="k")
+        ax.add_collection3d(poly)
+
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.axis("equal")
+
+
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    for c in coords.reshape(points.shape):
+        ax.scatter(c[:, 0], c[:, 1])
+
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    polygons = []
+    for c in coords.reshape(points.shape):
+        print(c.shape)
+        polygon = Polygon(c).convex_hull
+        vertices = np.array(polygon.exterior.coords)
+        # polygons.append(polygon)
+        ax.scatter(vertices[:, 0], vertices[:, 1])
+        ax.fill(vertices[:, 0], vertices[:, 1], alpha=0.2, edgecolor='k', zorder=0)
+
+    polygons = [Polygon(c[:, :2]).convex_hull for c in coords.reshape(points.shape)]
+    union_poly = unary_union(polygons)
+    union_area = union_poly.area
+    print("Union area:", union_area)
+
+
+    vertices = np.array(union_poly.exterior.coords)
+    ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
+            edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
+
+    N = len(vertices)
+    for i in range(N):
+        j = (i + 1) % N
+        d = np.linalg.norm(vertices[i] - vertices[j])
+        print(d)
+    ax.axis("equal")
+
+    plt.show()
 
 
 if __name__ == "__main__":
