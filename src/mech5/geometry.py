@@ -63,15 +63,13 @@ class GeometryPostProcessor:
 
         cols = points.shape[1]
         assert cols == 3
-        self.decorated_shape = points.shape
-
+        
         # Plane normal
         _n = n/np.linalg.norm(n)
 
         # m to form a plane basis with n
         _m = m/np.linalg.norm(m)
         
-        print(np.inner(_n, _m))
         assert np.inner(_n, _m) < 1e-10
 
         # l to complete the basis
@@ -87,6 +85,7 @@ class GeometryPostProcessor:
         projected = decorated_flat - np.outer(distances[:, None], _n)
         plane_coords = (projected - o) @ R.T
 
+        self.shape = decorated.shape
         return decorated, decorated_flat, distances, projected, plane_coords
 
 
@@ -97,7 +96,7 @@ class GeometryPostProcessor:
 
 
     def polygon_area(self, points: np.ndarray):
-        return self.polygon(points).area * self.cell_size
+        return self.polygon(points).area
 
 
     def polygon_vertices(self, points: np.ndarray):
@@ -115,7 +114,7 @@ class GeometryPostProcessor:
 
 
     def union_area(self):
-        return self.union.area * self.cell_size
+        return self.union.area
 
 
     def union_vertices(self):
@@ -175,9 +174,28 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
             indices.append(idx)
             nearest.append(n)
 
-
-        self.h5.write(f"{self.h5._pores}/distance", np.asarray(distances))
+        self.h5.write(f"{self.h5._pores}/distance_pix", np.asarray(distances))
+        self.h5.write(f"{self.h5._pores}/distance_unit", np.asarray(distances)*self.cell_size)
         self.h5.write(f"{self.h5._pores}/nearest", np.vstack(nearest))
+
+
+    def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None):
+        pore, _ = self.h5.query_pore_voxels(pore_id)
+        if o is None:
+            o = pore.mean(axis=0)
+        decorated, decorated_flat, distances, projected, plane_coords = self.project(pore, n, m, o)
+        self.union_polygon(self.projected_2_polygons(plane_coords))
+        return self.union_area() # unit!
+    
+    
+    def all_project_pore(self, n: np.ndarray, m: np.ndarray, o: np.ndarray = None):
+        pore_id = self.h5.read(f"{self.h5._root}/pores/ID")
+        normal_str = np.array2string(n, separator='_')
+        area = []
+        for p in tqdm(pore_id, desc=f"Projecting {normal_str}"):
+            area.append(self.project_pore(p, n, m, o))
+        self.h5.write(f"{self.h5._pores}/proj_unit/{normal_str}", np.asarray(area))
+        return area
 
 
 def test_tree():
@@ -421,8 +439,8 @@ def test_polycube():
     points = proc.decorate(centres)
     points_flat = proc.decorate(centres).reshape(-1, 3)
 
-    n = np.array([0., 0., 1.]) 
-    m = np.array([1., 0., 0.])
+    n = np.array([0., 1., 0.]) 
+    m = np.array([0., 0., 1.])
 
     # n = np.array([1., 1., 1.])
     _n = n/np.linalg.norm(n)
@@ -509,6 +527,7 @@ def test_polycube():
     proc.shape = points.shape
     proc.union_polygon(proc.projected_2_polygons(coords))
     aa = proc.union_area()
+    print("Union area:", aa)
     print(aa - union_area)
 
     if union_poly.geom_type == 'Polygon':
@@ -541,6 +560,16 @@ def test_polycube():
     plt.show()
 
 
+def test_project_pores():
+    h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5",
+                                mode="r")
+    v = VoxelGeometryPostProcessor(h5, 3.7)
+    with h5 as h:
+        v.all_project_pore(np.array([1., 0., 0.]), np.array([0., 1., 0.]))
+        v.all_project_pore(np.array([0., 1., 0.]), np.array([0., 0., 1.]))
+        v.all_project_pore(np.array([0., 0., 1.]), np.array([1., 0., 0.]))
+
+
 if __name__ == "__main__":
     # test_tree()
     # test_distance()
@@ -550,4 +579,6 @@ if __name__ == "__main__":
     # to_vtu("cyl_3.7_27_v3.h5", "/home/ale/Desktop/example/")
     # test_decorate()
     # test_project()
-    test_polycube()
+    # test_polycube()
+    # test_project_pores()
+    ...
