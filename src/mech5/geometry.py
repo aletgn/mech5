@@ -66,23 +66,25 @@ class GeometryPostProcessor:
         self.decorated_shape = points.shape
 
         # Plane normal
-        n = np.array([1., 1., 1.])
-        n /= np.linalg.norm(n)
+        _n = n/np.linalg.norm(n)
 
         # m to form a plane basis with n
-        m = np.array([-1., 1., 0.])
-        m /= np.linalg.norm(m)
+        _m = m/np.linalg.norm(m)
+        
+        print(np.inner(_n, _m))
+        assert np.inner(_n, _m) < 1e-10
 
         # l to complete the basis
-        l = np.cross(n, m)
+        l = np.cross(_n, _m)
+        _l = l/np.linalg.norm(l)
 
         # Rotation matrix
-        R = np.vstack([l, m, n])
+        R = np.vstack([_l, _m, _n])
 
         decorated = self.decorate(points)
         decorated_flat = decorated.reshape(-1, cols)
-        distances = np.dot(decorated_flat - o, n)
-        projected = decorated_flat - np.outer(distances[:, None], n)
+        distances = np.dot(decorated_flat - o, _n)
+        projected = decorated_flat - np.outer(distances[:, None], _n)
         plane_coords = (projected - o) @ R.T
 
         return decorated, decorated_flat, distances, projected, plane_coords
@@ -419,18 +421,24 @@ def test_polycube():
     points = proc.decorate(centres)
     points_flat = proc.decorate(centres).reshape(-1, 3)
 
-    n = np.array([1., 1., 1.])
-    n /= np.linalg.norm(n)
+    n = np.array([0., 0., 1.]) 
+    m = np.array([1., 0., 0.])
 
-    m = np.array([-1., 1., 0.])
-    m /= np.linalg.norm(m)
+    # n = np.array([1., 1., 1.])
+    _n = n/np.linalg.norm(n)
+    _m = m/np.linalg.norm(m)
+    assert np.inner(_n, _m) < 1e-10
 
-    l = np.cross(n, m)
+    # m = np.array([-1., 1., 0.])
+    # m /= np.linalg.norm(m)
 
-    distances = np.dot(points_flat - o, n)
-    projected_3d = points_flat - np.outer(distances[:, None], n)
+    l = np.cross(_n, _m)
+    _l = l/np.linalg.norm(l)
 
-    R = np.vstack([l, m, n])
+    distances = np.dot(points_flat - o, _n)
+    projected_3d = points_flat - np.outer(distances[:, None], _n)
+
+    R = np.vstack([_l, _m, _n])
     coords = (projected_3d - o) @ R.T
 
     pp, ff, dd, jj, cc = proc.project(centres, n, m, o)
@@ -449,7 +457,7 @@ def test_polycube():
 
     ax.scatter(centres[:, 0], centres[:, 1], centres[:, 2])
     ax.scatter(ff[:, 0], ff[:, 1], ff[:, 2])
-    ax.scatter(jj[:, 0], jj[:, 1], jj[:, 2], marker="X")
+    ax.scatter(jj[:, 0], jj[:, 1], jj[:, 2], marker="o")
 
     for p in pp:
         faces = [[p[0], p[1], p[5], p[4]],
