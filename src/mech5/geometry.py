@@ -97,7 +97,7 @@ class GeometryPostProcessor:
 
 
     def polygon_area(self, points: np.ndarray):
-        return self.polygon(points).area
+        return self.polygon(points).area * self.cell_size
 
 
     def polygon_vertices(self, points: np.ndarray):
@@ -115,7 +115,7 @@ class GeometryPostProcessor:
 
 
     def union_area(self):
-        return self.union.area
+        return self.union.area * self.cell_size
 
 
     def union_vertices(self):
