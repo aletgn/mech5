@@ -1,3 +1,4 @@
+Label: ID
 Probability: probability
 
 "Radius [µm]": radius_unit
@@ -51,8 +52,10 @@ Label: ID
 "Min. edge distance (outside) [µm]": edge_dist_min_outside_unit
 "Max. edge distance (cut) [µm]": edge_dist_max_cut_unit
 
-"Projected area (yz-plane) [µm²]": proj_area_yz_unit
-"Projected area (xz-plane) [µm²]": proj_area_xz_unit
-"Projected area (xy-plane) [µm²]": proj_area_xy_unit
+"Projected area (yz-plane) [µm²]": proj_unit_[1._0._0.]
+"Projected area (xz-plane) [µm²]": proj_unit_[0._1._0.]
+"Projected area (xy-plane) [µm²]": proj_unit_[0._0._1.]
 
-mur_xy: mur_xy_unit
+"Murakami (yz-plane) [µm²]": mur_unit_[1._0._0.]
+"Murakami (xz-plane) [µm²]": mur_unit_[0._1._0.]
+"Murakami (xy-plane) [µm²]": mur_unit_[0._0._1.]
