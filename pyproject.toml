@@ -1,3 +1,35 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "mech5"
+version = "0.0.0"
+description = "MECH5: MEChanical H5"
+readme = "README.md"
+maintainers = [{name = "Alessandro Tognan", email="alessandro.tognan@uniud.it"}]
+dependencies=["numpy",
+              "scipy",
+              "matplotlib",
+              "pyvista",
+              "shapely",
+              "pandas",
+              "odfpy",
+              "openpyxl",
+              "h5py",
+              "PyYAML",
+              "tqdm"]
+requires-python = ">=3.10"
+license = "MIT"
+
+[project.urls]
+Homepage = "https://github.com/aletgn/mech5"
+Repository = "https://github.com/aletgn/mech5"
+Documentation = "https://github.com/aletgn/mech5#readme"
+
+[project.optional-dependencies]
+test = ["notebook"]
+dev = ["pytest", "twine", "setuptools", "build"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
