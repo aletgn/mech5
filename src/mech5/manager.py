@@ -281,6 +281,20 @@ class H5File:
 
     def load_query(self, protocol: Union[callable, Criterion, Mask]) -> None:
         self.query_queue = protocol
+    
+
+    def merge(self, grp: str, other: h5py.File, destination: str):
+        """other and destination  MUST BE OPEN already in read mode"""
+        grp_list =  self.list_datasets(grp)
+        for g in grp_list:
+            print(f"Merging: {g}")
+            arr_self = self.read(g)
+            arr_other = other.read(g)
+            print(arr_self.shape)
+            print(arr_other.shape)
+            arr_destination = np.concatenate([arr_self, arr_other])
+            assert arr_destination.shape[0] == arr_self.shape[0] + arr_other.shape[0]
+            destination.write(g, arr_destination)
 
 
     def delete_file(self) -> None:
@@ -563,6 +577,24 @@ def test_list_groups():
         print(h5.list_groups("/ct"))
 
 
+def test_merge():
+
+    hb = H5File("/home/ale/Desktop/example/Fiji-2.0b-10.h5", "r", overwrite=True)
+    hc = H5File("/home/ale/Desktop/example/Fiji-2.0-10.h5", "a", overwrite=True)
+    hb.open()
+    hc.open()
+
+    with H5File("/home/ale/Desktop/example/Fiji-2.0a-10.h5", "r", overwrite=True) as ha:
+        # print(h5.list_datasets("/ct/pores"))
+        # print(h5.list_datasets("/ct/surface"))
+        # ha.merge("/ct/pores", hb, hc)
+        # print(ha.read("/ct/pores/ID").shape)
+        # print(hb.read("/ct/pores/ID").shape)
+        print(hc.read("/ct/pores/voxels").shape)
+    
+    hb.close()
+    hc.close()
+
 if __name__ == "__main__":
     # print("=== Test open and close ===")
     # test_open_and_close()
@@ -585,12 +617,15 @@ if __name__ == "__main__":
     # print("\n=== Test query file ===")
     # test_query()
 
-    print("\n=== Test true query file ===")
-    test_true_query()
+    # print("\n=== Test true query file ===")
+    # test_true_query()
 
     # print("\n=== Test query pore ===")
     # test_query_pore()
 
     # print("\n=== Test list groups ===")
     # test_list_groups()
+
+    print("\n=== Test merge files ===")
+    test_merge()
     ...
