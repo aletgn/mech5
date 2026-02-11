@@ -277,13 +277,13 @@ class H5File:
         data = self.read(path_to_group)
         mask = protocol(data)
         return data[mask], mask
-    
+
 
     def load_query(self, protocol: Union[callable, Criterion, Mask]) -> None:
         self.query_queue = protocol
-    
 
-    def merge(self, dataset: str, other: h5py.File, destination: str):
+
+    def concatenate(self, dataset: str, other: h5py.File, destination: str):
         """other/destination and MUST BE OPEN already in read/append mode"""
         print(f"Merging: {dataset}")
         arr_self = self.read(dataset)
@@ -292,12 +292,14 @@ class H5File:
         print(arr_other.shape)
         arr_destination = np.concatenate([arr_self, arr_other])
         assert arr_destination.shape[0] == arr_self.shape[0] + arr_other.shape[0]
-        destination.write(dataset, arr_destination)
+        return arr_destination
+        # destination.write(dataset, arr_destination)
 
-    
+
     def merge_all_datasets(self, grp: str, other: h5py.File, destination: str):
         for g in self.list_datasets(grp):
-            self.merge(g, other, destination)
+            array = self.concatenate(g, other, destination)
+            destination.write(g, array)
 
 
     def delete_file(self) -> None:
@@ -495,6 +497,57 @@ class SegmentedDatasetH5File(H5File):
         self.write(f"{self._pores}/voxels_offsets", offsets)
 
 
+    def merge_segmented_datasets(self, other, destination):
+
+        translation =  [self._pores + "/" + t for t in ["cz_pix", "cz_unit", "zmin_pix", "zmax_pix"]]
+        for g in self.list_datasets(f"{self._pores}"):
+            print(g)
+            arr_bot = self.read(g)
+            arr_top = other.read(g)
+
+            if g in translation:
+                print("Merging with translation.")
+                arr_full = np.concatenate([arr_bot, arr_top + arr_bot.max()])
+
+            elif g == f"{self._pores}/voxels":
+                print("Merging voxels.")
+                arr_top_shifted = arr_top.copy()
+                arr_top_shifted[:, 2] += arr_bot[:, 2].max()
+                arr_full = np.concatenate([arr_bot, arr_top_shifted])
+
+            elif g == f"{self._pores}/voxels_offsets":
+                print("Merging offsets.")
+                arr_full = np.concatenate([arr_bot, arr_top[1: ] + arr_bot[-1] + 1])
+
+            else:
+                print("Merging normally.")
+                arr_full = np.concatenate([arr_bot, arr_top])
+
+            destination.write(g, arr_full)
+
+        for g in self.list_datasets(f"{self._surface}"):
+            arr_bot = self.read(g)
+            arr_top = other.read(g)
+
+            if g == f"{self._surface}/voxels":
+                arr_top_shifted = arr_top.copy()
+                arr_top_shifted[:, 2] += arr_bot[:, 2].max()
+                arr_full = np.concatenate([arr_bot, arr_top_shifted])
+
+            elif g == f"{self._surface}/surface_label":
+                arr_full = np.array(1)
+
+            else:
+                ...
+                # arr_full = np.concatenate([arr_bot, arr_top])
+
+            destination.write(g, arr_full)
+
+        # Re-label pores based on surface label (1) -- start from 2
+        new_ID = np.arange(2, destination.read(f"{self._pores}/ID").shape[0] + 2)
+        destination.write(f"{destination._pores}/ID", new_ID)
+
+
 TEST_FILE =  "./testh5.h5"
 
 
@@ -588,13 +641,28 @@ def test_merge():
     hc.open()
 
     with H5File("/home/ale/Desktop/example/Fiji-2.0a-10.h5", "r", overwrite=True) as ha:
-        # ha.merge("/ct/pores/ID", hb, hc)
-        # print(ha.read("/ct/pores/ID").shape)
-        # print(hb.read("/ct/pores/ID").shape)
-        # print(hc.read("/ct/pores/ID").shape)
-        ha.merge_all_datasets("/ct/pores", hb, hc)
+        cat = ha.concatenate("/ct/pores/ID", hb, hc)
+        print(ha.read("/ct/pores/ID").shape)
+        print(hb.read("/ct/pores/ID").shape)
+        print(hc.read("/ct/pores/ID").shape)
+        # ha.merge_all_datasets("/ct/pores", hb, hc)
+        # hc.inspect()
+
+    hb.close()
+    hc.close()
+
+
+def test_merge_segmented():
+
+    hb = SegmentedDatasetH5File("/home/ale/Desktop/example/Fiji-2.0b-10.h5", "r", overwrite=True)
+    hc = SegmentedDatasetH5File("/home/ale/Desktop/example/Fiji-2.0-10.h5", "w", overwrite=True)
+    hb.open()
+    hc.open()
+
+    with SegmentedDatasetH5File("/home/ale/Desktop/example/Fiji-2.0a-10.h5", "r", overwrite=True) as ha:
+        ha.merge_segmented_datasets(hb, hc)
         hc.inspect()
-    
+
     hb.close()
     hc.close()
 
@@ -629,6 +697,9 @@ if __name__ == "__main__":
     # print("\n=== Test list groups ===")
     # test_list_groups()
 
-    print("\n=== Test merge files ===")
-    test_merge()
+    # print("\n=== Test merge files ===")
+    # test_merge()
+
+    print("\n=== Test segmented datasets ===")
+    test_merge_segmented()
     ...

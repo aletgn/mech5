@@ -919,6 +919,33 @@ def test_pca():
     # ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
     # ax.axis("equal")
     # plt.show()
+
+
+def test_pca_merged():
+    h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0-10.h5",
+                                mode="r")
+    
+    ha = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0a-10.h5",
+                                mode="r")
+    
+    hb = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0b-10.h5",
+                                mode="r")
+
+    with h5 as h:
+        voxels = h.read("/ct/surface/voxels")
+
+    v = VoxelGeometryPostProcessor(h5, 3.7)
+    with h5 as h:
+        v.pca(1e5, [1, 2, 0])
+
+    # idx = np.random.choice(voxels.shape[0], size=10000, replace=False)
+    # fig = plt.figure()
+    # ax = fig.add_subplot(projection="3d", proj_type="ortho")
+
+    # sample =  ((voxels[idx] - v.C_pix) @ v.R)
+    # ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
+    # ax.axis("equal")
+    # plt.show()
     
 
 if __name__ == "__main__":
@@ -932,5 +959,6 @@ if __name__ == "__main__":
     # test_project()
     # test_polycube()
     # test_project_pores()
-    test_pca()
+    # test_pca()
+    test_pca_merged()
     ...
