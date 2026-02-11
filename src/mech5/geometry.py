@@ -92,7 +92,7 @@ class GeometryPostProcessor:
         print("tree done")
 
     
-    def pca(self, array: np.ndarray, batch_size: int) -> None:
+    def pca(self, array: np.ndarray, batch_size: int, prior: List) -> None:
         self.C_pix = array.mean(axis = 0)
         self.C_unit = self.cell_size * self.C_pix
         Q = array - self.C_pix
@@ -103,16 +103,22 @@ class GeometryPostProcessor:
             ipca.partial_fit(Q[start:end])
 
         axes = ipca.components_
+
+        if prior is not None:
+            if sorted(prior) != [0, 1, 2]:
+                raise ValueError("Prior must be a permutation of [0, 1, 2].")
+            axes = axes[prior]
+
         self.R = axes.T
 
         print(f"Rotation matrix: {self.R}")
         print(f"Det(R): {np.linalg.det(self.R)}")
+        
         if np.linalg.det(self.R) < 0:
             print("Negative determinant. Swapping one axis")
             self.R[:, -1] *= -1
         else:
             print("Positive determinant. Keeping axes")
-
 
 
     def distance(self, point_cloud: np.ndarray, array: np.ndarray) -> Tuple[np.ndarray]:
@@ -891,7 +897,7 @@ def test_pca():
     v = VoxelGeometryPostProcessor(h5, 3.7)
     with h5 as h:
         voxels = h.read("/ct/surface/voxels")
-        v.pca(voxels, 1e3)
+        v.pca(voxels, 1e5, [1, 2, 0])
         # print(v.C_unit, v.C_pix)
 
     fig = plt.figure()
