@@ -433,6 +433,14 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         self.h5.write(f"{self.h5._pores}/distance_unit", np.asarray(distances)*self.cell_size)
         self.h5.write(f"{self.h5._pores}/nearest", np.vstack(nearest))
 
+    
+    def pca(self, batch_size: int, prior: List):
+        voxels = self.h5.read(f"{self.h5._surface}/voxels")
+        super().pca(voxels, batch_size, prior)
+        # self.h5.write(f"{self.h5._surface}/R", self.R)
+        # self.h5.write(f"{self.h5._surface}/C_pix", self.C_pix)
+        # self.h5.write(f"{self.h5._surface}/C_unit", self.C_unit)
+
 
     def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> float:
         """
@@ -894,22 +902,24 @@ def test_project_pores():
 def test_pca():
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/fiji.h5",
                                 mode="r")
-    v = VoxelGeometryPostProcessor(h5, 3.7)
+    v = GeometryPostProcessor(3.7)
     with h5 as h:
         voxels = h.read("/ct/surface/voxels")
         v.pca(voxels, 1e5, [1, 2, 0])
-        # print(v.C_unit, v.C_pix)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(projection="3d", proj_type="ortho")
+    v = VoxelGeometryPostProcessor(h5, 3.7)
+    with h5 as h:
+        v.pca(1e5, [1, 2, 0])
 
-    idx = np.random.choice(voxels.shape[0], size=10000, replace=False)
-    sample =  ((voxels[idx] - v.C_pix) @ v.R)
-    ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
-    ax.axis("equal")
-    plt.show()
+    # fig = plt.figure()
+    # ax = fig.add_subplot(projection="3d", proj_type="ortho")
+
+    # idx = np.random.choice(voxels.shape[0], size=10000, replace=False)
+    # sample =  ((voxels[idx] - v.C_pix) @ v.R)
+    # ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
+    # ax.axis("equal")
+    # plt.show()
     
-
 
 if __name__ == "__main__":
     # test_tree()
