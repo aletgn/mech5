@@ -510,17 +510,17 @@ class SegmentedDatasetH5File(H5File):
                 arr_full = np.concatenate([arr_bot, arr_top + arr_bot.max()])
 
             elif g == f"{self._pores}/voxels":
-                print("Merging voxels.")
+                print("Merging pore voxels.")
                 arr_top_shifted = arr_top.copy()
                 arr_top_shifted[:, 2] += arr_bot[:, 2].max()
                 arr_full = np.concatenate([arr_bot, arr_top_shifted])
 
             elif g == f"{self._pores}/voxels_offsets":
-                print("Merging offsets.")
+                print("Merging pore offsets.")
                 arr_full = np.concatenate([arr_bot, arr_top[1: ] + arr_bot[-1] + 1])
 
             else:
-                print("Merging normally.")
+                print("Merging pore normally.")
                 arr_full = np.concatenate([arr_bot, arr_top])
 
             destination.write(g, arr_full)
@@ -530,16 +530,18 @@ class SegmentedDatasetH5File(H5File):
             arr_top = other.read(g)
 
             if g == f"{self._surface}/voxels":
+                print("Merging surface voxels.")
                 arr_top_shifted = arr_top.copy()
                 arr_top_shifted[:, 2] += arr_bot[:, 2].max()
                 arr_full = np.concatenate([arr_bot, arr_top_shifted])
 
             elif g == f"{self._surface}/surface_label":
+                print("Merging surface label.")
                 arr_full = np.array(1)
 
             else:
-                ...
-                # arr_full = np.concatenate([arr_bot, arr_top])
+                print("Normal merge for surface.")
+                arr_full = np.concatenate([arr_bot, arr_top])
 
             destination.write(g, arr_full)
 
@@ -661,7 +663,7 @@ def test_merge_segmented():
 
     with SegmentedDatasetH5File("/home/ale/Desktop/example/Fiji-2.0a-10.h5", "r", overwrite=True) as ha:
         ha.merge_segmented_datasets(hb, hc)
-        hc.inspect()
+        # hc.inspect()
 
     hb.close()
     hc.close()
@@ -700,6 +702,6 @@ if __name__ == "__main__":
     # print("\n=== Test merge files ===")
     # test_merge()
 
-    print("\n=== Test segmented datasets ===")
-    test_merge_segmented()
+    # print("\n=== Test segmented datasets ===")
+    # test_merge_segmented()
     ...

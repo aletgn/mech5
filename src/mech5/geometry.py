@@ -38,8 +38,8 @@ class GeometryPostProcessor:
         """
         self.cell_size = cell_size
         self.C_pix = np.zeros(shape=(3, ))
-        self.C_unit = self.C_pix * np.zeros(shape=(3, )) * self.cell_size
-        self.R = np.ones(shape=(3, 3))
+        self.C_unit = self.C_pix * self.cell_size
+        self.R = np.eye(3, 3)
         self.shape = None
 
 
@@ -932,20 +932,38 @@ def test_pca_merged():
                                 mode="r")
 
     with h5 as h:
-        voxels = h.read("/ct/surface/voxels")
+        vx = h.read("/ct/surface/voxels")
+        print(vx.shape, vx.min(axis=0), vx.max(axis=0))
+    idx = np.random.choice(vx.shape[0], size=1000, replace=False)
 
+    with ha as a:
+        va = ha.read("/ct/surface/voxels")
+        print(va.shape, va.min(axis=0), va.max(axis=0))
+    ida = np.random.choice(va.shape[0], size=1000, replace=False)
+    
+    with hb as b:
+        vb = hb.read("/ct/surface/voxels")
+        print(vb.shape, vb.min(axis=0), vb.max(axis=0))
+    idb = np.random.choice(vb.shape[0], size=1000, replace=False)
+    
     v = VoxelGeometryPostProcessor(h5, 3.7)
     with h5 as h:
         v.pca(1e5, [1, 2, 0])
 
-    # idx = np.random.choice(voxels.shape[0], size=10000, replace=False)
-    # fig = plt.figure()
-    # ax = fig.add_subplot(projection="3d", proj_type="ortho")
+    vb[:, 2] += va[:, 2].max()
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d", proj_type="ortho")
 
-    # sample =  ((voxels[idx] - v.C_pix) @ v.R)
-    # ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
-    # ax.axis("equal")
-    # plt.show()
+    sx =  ((vx[idx] - v.C_pix) @ v.R)
+    va =  ((va[ida] - v.C_pix) @ v.R)
+    vb =  ((vb[idb] - v.C_pix) @ v.R)
+
+    ax.scatter(sx[:, 0], sx[:, 1], sx[:, 2], s = 2, c="r")
+    ax.scatter(va[:, 0], va[:, 1], va[:, 2], s = 2, c="g")
+    ax.scatter(vb[:, 0], vb[:, 1], vb[:, 2], s = 2, c="b")
+    ax.axis("equal")
+    plt.show()
     
 
 if __name__ == "__main__":
@@ -960,5 +978,5 @@ if __name__ == "__main__":
     # test_polycube()
     # test_project_pores()
     # test_pca()
-    test_pca_merged()
+    # test_pca_merged()
     ...
