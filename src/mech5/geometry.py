@@ -14,6 +14,7 @@ from shapely.ops import unary_union
 from tqdm import tqdm
 
 from mech5.manager import H5File, SegmentedDatasetH5File
+from sklearn.decomposition import IncrementalPCA
 
 
 class GeometryPostProcessor:
@@ -36,7 +37,8 @@ class GeometryPostProcessor:
             expressed in units derived from this scale.
         """
         self.cell_size = cell_size
-        self.C = np.zeros(shape=(3, ))
+        self.C_pix = np.zeros(shape=(3, ))
+        self.C_unit = self.C_pix * np.zeros(shape=(3, )) * self.cell_size
         self.R = np.ones(shape=(3, 3))
         self.shape = None
 
@@ -88,6 +90,29 @@ class GeometryPostProcessor:
         """
         self.tree = cKDTree(point_cloud)
         print("tree done")
+
+    
+    def pca(self, array: np.ndarray, batch_size: int) -> None:
+        self.C_pix = array.mean(axis = 0)
+        self.C_unit = self.cell_size * self.C_pix
+        Q = array - self.C_pix
+
+        ipca = IncrementalPCA(n_components=3, batch_size=int(batch_size))
+        for start in tqdm(range(0, Q.shape[0], ipca.batch_size), desc="Incremental PCA"):
+            end = start + ipca.batch_size
+            ipca.partial_fit(Q[start:end])
+
+        axes = ipca.components_
+        self.R = axes.T
+
+        print(f"Rotation matrix: {self.R}")
+        print(f"Det(R): {np.linalg.det(self.R)}")
+        if np.linalg.det(self.R) < 0:
+            print("Negative determinant. Swapping one axis")
+            self.R[:, -1] *= -1
+        else:
+            print("Positive determinant. Keeping axes")
+
 
 
     def distance(self, point_cloud: np.ndarray, array: np.ndarray) -> Tuple[np.ndarray]:
@@ -860,6 +885,26 @@ def test_project_pores():
         # plt.show()
 
 
+def test_pca():
+    h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/fiji.h5",
+                                mode="r")
+    v = VoxelGeometryPostProcessor(h5, 3.7)
+    with h5 as h:
+        voxels = h.read("/ct/surface/voxels")
+        v.pca(voxels, 1e3)
+        # print(v.C_unit, v.C_pix)
+
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d", proj_type="ortho")
+
+    idx = np.random.choice(voxels.shape[0], size=10000, replace=False)
+    sample =  ((voxels[idx] - v.C_pix) @ v.R)
+    ax.scatter(sample[:, 0], sample[:, 1], sample[:, 2], s = 2)
+    ax.axis("equal")
+    plt.show()
+    
+
+
 if __name__ == "__main__":
     # test_tree()
     # test_distance()
@@ -869,6 +914,7 @@ if __name__ == "__main__":
     # to_vtu("cyl_3.7_27_v3.h5", "/home/ale/Desktop/example/")
     # test_decorate()
     # test_project()
-    test_polycube()
+    # test_polycube()
     # test_project_pores()
+    test_pca()
     ...
