@@ -283,18 +283,21 @@ class H5File:
         self.query_queue = protocol
     
 
-    def merge(self, grp: str, other: h5py.File, destination: str):
-        """other and destination  MUST BE OPEN already in read mode"""
-        grp_list =  self.list_datasets(grp)
-        for g in grp_list:
-            print(f"Merging: {g}")
-            arr_self = self.read(g)
-            arr_other = other.read(g)
-            print(arr_self.shape)
-            print(arr_other.shape)
-            arr_destination = np.concatenate([arr_self, arr_other])
-            assert arr_destination.shape[0] == arr_self.shape[0] + arr_other.shape[0]
-            destination.write(g, arr_destination)
+    def merge(self, dataset: str, other: h5py.File, destination: str):
+        """other/destination and MUST BE OPEN already in read/append mode"""
+        print(f"Merging: {dataset}")
+        arr_self = self.read(dataset)
+        arr_other = other.read(dataset)
+        print(arr_self.shape)
+        print(arr_other.shape)
+        arr_destination = np.concatenate([arr_self, arr_other])
+        assert arr_destination.shape[0] == arr_self.shape[0] + arr_other.shape[0]
+        destination.write(dataset, arr_destination)
+
+    
+    def merge_all_datasets(self, grp: str, other: h5py.File, destination: str):
+        for g in self.list_datasets(grp):
+            self.merge(g, other, destination)
 
 
     def delete_file(self) -> None:
@@ -585,12 +588,12 @@ def test_merge():
     hc.open()
 
     with H5File("/home/ale/Desktop/example/Fiji-2.0a-10.h5", "r", overwrite=True) as ha:
-        # print(h5.list_datasets("/ct/pores"))
-        # print(h5.list_datasets("/ct/surface"))
-        # ha.merge("/ct/pores", hb, hc)
+        # ha.merge("/ct/pores/ID", hb, hc)
         # print(ha.read("/ct/pores/ID").shape)
         # print(hb.read("/ct/pores/ID").shape)
-        print(hc.read("/ct/pores/voxels").shape)
+        # print(hc.read("/ct/pores/ID").shape)
+        ha.merge_all_datasets("/ct/pores", hb, hc)
+        hc.inspect()
     
     hb.close()
     hc.close()
