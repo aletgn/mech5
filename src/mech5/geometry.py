@@ -17,6 +17,23 @@ from mech5.manager import H5File, SegmentedDatasetH5File
 from sklearn.decomposition import IncrementalPCA
 
 
+def eq_diameter(volume: np.array) -> np.ndarray:
+    """
+    Compute the equivalent spherical diameter from volume.
+
+    Parameters
+    ----------
+    volume : np.array
+        Volume value(s).
+
+    Returns
+    -------
+    np.ndarray
+        Equivalent spherical diameter(s).
+    """
+    return (6.0 * volume / np.pi) ** (1.0 / 3.0)
+
+
 class GeometryPostProcessor:
     """
     Post-processing utilities for voxel-based geometries.
@@ -978,6 +995,12 @@ def test_pca_merged():
     plt.show()
 
 
+def test_eq_diameter():
+    V = np.pi / 6
+    d = eq_diameter(V)
+    print(d)
+
+
 if __name__ == "__main__":
     # test_tree()
     # test_distance()
@@ -991,4 +1014,5 @@ if __name__ == "__main__":
     # test_project_pores()
     # test_pca()
     # test_pca_merged()
+    # test_eq_diameter()
     ...
