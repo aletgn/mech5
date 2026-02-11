@@ -77,7 +77,8 @@ class GeometryPostProcessor:
 
         # return point + (self.cell_size / 2) * vertices
         offsets = (self.cell_size / 2) * vertices
-        return self.cell_size * points[:, np.newaxis, :] + offsets[np.newaxis, :, :]
+        return self.C_unit + ((self.cell_size * points[:, np.newaxis, :] + offsets[np.newaxis, :, :] - self.C_unit) @ self.R)
+
 
     def make_tree(self, point_cloud: np.ndarray) -> None:
         """
@@ -91,7 +92,7 @@ class GeometryPostProcessor:
         self.tree = cKDTree(point_cloud)
         print("tree done")
 
-    
+
     def pca(self, array: np.ndarray, batch_size: int, prior: List) -> None:
         self.C_pix = array.mean(axis = 0)
         self.C_unit = self.cell_size * self.C_pix
@@ -113,7 +114,7 @@ class GeometryPostProcessor:
 
         print(f"Rotation matrix: {self.R}")
         print(f"Det(R): {np.linalg.det(self.R)}")
-        
+
         if np.linalg.det(self.R) < 0:
             print("Negative determinant. Swapping one axis")
             self.R[:, -1] *= -1
@@ -184,13 +185,13 @@ class GeometryPostProcessor:
         """
         cols = points.shape[1]
         assert cols == 3
-        
+
         # Plane normal
         _n = n/np.linalg.norm(n)
 
         # m to form a plane basis with n
         _m = m/np.linalg.norm(m)
-        
+
         assert np.inner(_n, _m) < 1e-10
 
         # l to complete the basis
@@ -433,13 +434,23 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         self.h5.write(f"{self.h5._pores}/distance_unit", np.asarray(distances)*self.cell_size)
         self.h5.write(f"{self.h5._pores}/nearest", np.vstack(nearest))
 
-    
+
     def pca(self, batch_size: int, prior: List):
         voxels = self.h5.read(f"{self.h5._surface}/voxels")
         super().pca(voxels, batch_size, prior)
-        # self.h5.write(f"{self.h5._surface}/R", self.R)
-        # self.h5.write(f"{self.h5._surface}/C_pix", self.C_pix)
-        # self.h5.write(f"{self.h5._surface}/C_unit", self.C_unit)
+        self.h5.write(f"{self.h5._surface}/R", self.R)
+        self.h5.write(f"{self.h5._surface}/C_pix", self.C_pix)
+        self.h5.write(f"{self.h5._surface}/C_unit", self.C_unit)
+
+
+    def check_pca(self):
+        try:
+            self.C_pix = self.h5.read(f"{self.h5._surface}/C_pix")
+            self.C_unit = self.h5.read(f"{self.h5._surface}/C_unit")
+            self.R = self.h5.read(f"{self.h5._surface}/R")
+            print("Found PCA.")
+        except:
+            print("PCA did not run.")
 
 
     def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> float:
@@ -467,14 +478,15 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         float
             Projected pore area in physical units squared.
         """
+        self.check_pca()
         pore, _ = self.h5.query_pore_voxels(pore_id)
         if o is None:
             o = pore.mean(axis=0)
         decorated, decorated_flat, distances, projected, plane_coords = self.project(pore, n, m, o)
         self.union_polygon(self.projected_2_polygons(plane_coords))
         return self.union_area() # unit!
-    
-    
+
+
     def all_project_pore(self, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> List[float]:
         """
         Project all pores onto a plane and store projected areas.
@@ -743,7 +755,7 @@ def test_polycube():
     # Combine all cubes
     centres = np.array([centre1, centre2, centre3, centre4,
                         centre5, centre6, centre7, centre8, centre9])
-    
+
     # centres = np.array([centre1, centre2])
 
     # o = centres.mean(axis=0)
@@ -751,7 +763,7 @@ def test_polycube():
     points = proc.decorate(centres)
     points_flat = proc.decorate(centres).reshape(-1, 3)
 
-    n = np.array([0., 1., 0.]) 
+    n = np.array([0., 1., 0.])
     m = np.array([0., 0., 1.])
 
     # n = np.array([1., 1., 1.])
@@ -849,7 +861,7 @@ def test_polycube():
 
         ax.fill(vertices[:,0], vertices[:,1], alpha=.1,
                 edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
-        
+
         vv = proc.union_vertices()
         ax.fill(vv[:,0], vv[:,1], alpha=.1,
                 edgecolor='red', facecolor='none', linewidth=2, label='Union', zorder=-1)
@@ -861,7 +873,7 @@ def test_polycube():
             # print(verts[0: -1].shape)
             ax.fill(verts[:, 0], verts[:, 1], alpha=0.1, edgecolor='red',
                     facecolor='none', linewidth=2, label='Union', zorder=-1)
-            
+
 
         vv = proc.union_vertices()
         for v in vv:
@@ -924,10 +936,10 @@ def test_pca():
 def test_pca_merged():
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0-10.h5",
                                 mode="r")
-    
+
     ha = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0a-10.h5",
                                 mode="r")
-    
+
     hb = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/Fiji-2.0b-10.h5",
                                 mode="r")
 
@@ -940,18 +952,18 @@ def test_pca_merged():
         va = ha.read("/ct/surface/voxels")
         print(va.shape, va.min(axis=0), va.max(axis=0))
     ida = np.random.choice(va.shape[0], size=1000, replace=False)
-    
+
     with hb as b:
         vb = hb.read("/ct/surface/voxels")
         print(vb.shape, vb.min(axis=0), vb.max(axis=0))
     idb = np.random.choice(vb.shape[0], size=1000, replace=False)
-    
+
     v = VoxelGeometryPostProcessor(h5, 3.7)
     with h5 as h:
         v.pca(1e5, [1, 2, 0])
 
     vb[:, 2] += va[:, 2].max()
-    
+
     fig = plt.figure()
     ax = fig.add_subplot(projection="3d", proj_type="ortho")
 
@@ -964,7 +976,7 @@ def test_pca_merged():
     ax.scatter(vb[:, 0], vb[:, 1], vb[:, 2], s = 2, c="b")
     ax.axis("equal")
     plt.show()
-    
+
 
 if __name__ == "__main__":
     # test_tree()
