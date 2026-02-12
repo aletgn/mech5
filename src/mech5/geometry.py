@@ -465,9 +465,10 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
             self.C_pix = self.h5.read(f"{self.h5._surface}/C_pix")
             self.C_unit = self.h5.read(f"{self.h5._surface}/C_unit")
             self.R = self.h5.read(f"{self.h5._surface}/R")
-            print("Found PCA.")
+            # print("Found PCA.")
         except:
-            print("PCA did not run.")
+            # print("PCA did not run.")
+            ...
 
 
     def project_pore(self, pore_id: int, n: np.ndarray, m: np.ndarray, o: np.ndarray = None) -> float:
@@ -498,7 +499,7 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         self.check_pca()
         pore, _ = self.h5.query_pore_voxels(pore_id)
         if o is None:
-            o = pore.mean(axis=0)
+            o = (((self.C_pix - pore.mean(axis=0)) @ self.R) + self.C_pix) * self.cell_size
         decorated, decorated_flat, distances, projected, plane_coords = self.project(pore, n, m, o)
         self.union_polygon(self.projected_2_polygons(plane_coords))
         return self.union_area() # unit!

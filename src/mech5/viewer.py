@@ -38,6 +38,7 @@ class H5Plot:
         self.labels = [None]*len(self.h5)
         self.alpha = 0.5
         self.edgecolor = "k"
+        self.cmap = "RdYlBu_r"
         
         # histograms
         self.bins = None
@@ -48,6 +49,7 @@ class H5Plot:
         self.format = "pdf"
         self.frontend = None
         self.save = False
+        self.folder = "./"
         self.plot_name = "Untitled"
 
 
@@ -63,7 +65,8 @@ class H5Plot:
         data, _ = self.query_datasets(path)
         fig, ax = plt.subplots(dpi=self.dpi)
         for d, l in zip(data, self.labels):
-            ax.hist(d, bins=self.bins, density=self.density, label=l, edgecolor=None, alpha=0.5)
+            ax.hist(d, bins=self.bins, density=self.density,
+                    edgecolor=self.edgecolor, label=l)
 
         ax.set_xlabel(self.x_label)
         ax.set_ylabel(self.y_label)
@@ -74,27 +77,75 @@ class H5Plot:
         plt.legend()
         plt.tight_layout()
         if self.save:
-            ...
+            plt.savefig(f"{self.folder}/{self.plot_name}.{self.format}",
+                        dpi=self.dpi, format=self.format, bbox_inches="tight")
         else:
             plt.show()
 
 
     def scatter_2d(self, path_1: str, path_2: str,
                    path_size: str = None, path_color: str = None) -> None:
-        ...
+        data_1, _ = self.query_datasets(path_1)
+        data_2, _ = self.query_datasets(path_2)
+        size = None
+        color = None
+
+        if path_size is not None:
+            size = self.query_datasets(path_size)
+
+        if path_color is not None:
+            color = self.query_datasets(path_color)
+        
+        fig, ax = plt.subplots(dpi=self.dpi)
+        for d_1, d_2, l in zip(data_1, data_2, self.labels):
+            ax.scatter(d_1, d_2, s=size, c=color, cmap=self.cmap,
+                       edgecolor=self.edgecolor, label=l)
+
+        ax.set_xlabel(self.x_label)
+        ax.set_ylabel(self.y_label)
+        ax.set_xlim(self.x_lim)
+        ax.set_ylim(self.y_lim)
+        ax.tick_params("both", right=1, top=1, direction="in")
+        
         plt.tight_layout()
+        plt.legend()
         if self.save:
-            ...
+            plt.savefig(f"{self.folder}/{self.plot_name}.{self.format}",
+                        dpi=self.dpi, format=self.format, bbox_inches="tight")
         else:
             plt.show()
 
 
     def scatter_3d(self, path_1: str, path_2: str, path_3: str,
                    path_size: str = None, path_color: str = None) -> None:
-        ...
+        data_1, _ = self.query_datasets(path_1)
+        data_2, _ = self.query_datasets(path_2)
+        data_3, _ = self.query_datasets(path_3)
+        size = None
+        color = None
+
+        if path_size is not None:
+            size = self.query_datasets(path_size)
+
+        if path_color is not None:
+            color = self.query_datasets(path_color)
+        
+        fig, ax = plt.subplots(projection="3d")
+        for d_1, d_2, d_3, l in zip(data_1, data_2, data_3, self.labels):
+            ax.scatter(d_1, d_2, d_3, s=size, c=color, cmap=self.cmap, label=l)
+
+        ax.set_xlabel(self.x_label)
+        ax.set_ylabel(self.y_label)
+        ax.set_ylabel(self.z_label)
+        ax.set_xlim(self.x_lim)
+        ax.set_ylim(self.y_lim)
+        ax.set_ylim(self.z_lim)
+        
         plt.tight_layout()
+        plt.legend()
         if self.save:
-            ...
+            plt.savefig(f"{self.folder}/{self.plot_name}.{self.format}",
+                        dpi=self.dpi, format=self.format, bbox_inches="tight")
         else:
             plt.show()
 
@@ -112,7 +163,6 @@ def test_histogram_data():
     with h5 as h:
         print(v.query_datasets("ct/pores/volume_pix"))
         v.histogram("ct/pores/volume_pix")
-
 
 
 if __name__ == "__main__":
