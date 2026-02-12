@@ -517,7 +517,7 @@ class SegmentedDatasetH5File(H5File):
 
             elif g == f"{self._pores}/voxels_offsets":
                 print("Merging pore offsets.")
-                arr_full = np.concatenate([arr_bot, arr_top[1: ] + arr_bot[-1] + 1])
+                arr_full = np.concatenate([arr_bot, arr_top[1: ] + arr_bot[-1]])
 
             else:
                 print("Merging pore normally.")

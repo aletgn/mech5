@@ -380,7 +380,7 @@ class ArrayToVTK:
                              [ 1,  1,  1],
                              [-1,  1,  1]]) * self.cell_side/2
 
-        points = (array[:, None, :] + vertices).reshape(-1, 3)
+        points = (array[:, None, :]*self.cell_side + vertices).reshape(-1, 3)
         base = np.arange(0, 8 * N, 8)
         cells = np.c_[np.full(N, 8),
                       base + 0, base + 1, base + 2, base + 3,
