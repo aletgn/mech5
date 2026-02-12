@@ -306,6 +306,9 @@ class ArrayToVTK:
             Edge length of each cubic cell.
         """
         self.cell_side = cell_side
+        self.C_pix = np.zeros(shape=(3, ))
+        self.C_unit = self.C_pix * self.cell_side
+        self.R = np.eye(3, 3)
 
 
     def small_array_to_cubes(self, array: np.ndarray) -> pv.PolyData:
@@ -379,8 +382,7 @@ class ArrayToVTK:
                              [ 1, -1,  1],
                              [ 1,  1,  1],
                              [-1,  1,  1]]) * self.cell_side/2
-
-        points = (array[:, None, :]*self.cell_side + vertices).reshape(-1, 3)
+        points = ((array[:, None, :]*self.cell_side + vertices - self.C_unit) @ self.R).reshape(-1, 3)
         base = np.arange(0, 8 * N, 8)
         cells = np.c_[np.full(N, 8),
                       base + 0, base + 1, base + 2, base + 3,
