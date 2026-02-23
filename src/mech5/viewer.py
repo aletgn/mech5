@@ -39,11 +39,12 @@ class H5Plot:
         self.alpha = 0.5
         self.edgecolor = "k"
         self.cmap = "RdYlBu_r"
-        
+        self.blob_scale = 1e-3
+
         # histograms
         self.bins = None
         self.density = True
-        
+
         # output
         self.dpi = 300
         self.format = "pdf"
@@ -59,14 +60,14 @@ class H5Plot:
             d, m = h.query(path, h.query_queue)
             data.append(d); mask.append(m)
         return data, mask
-    
+
 
     def histogram(self, path: str) -> None:
         data, _ = self.query_datasets(path)
         fig, ax = plt.subplots(dpi=self.dpi)
         for d, l in zip(data, self.labels):
             ax.hist(d, bins=self.bins, density=self.density,
-                    edgecolor=self.edgecolor, label=l)
+                    edgecolor=self.edgecolor, label=l, alpha=self.alpha)
 
         ax.set_xlabel(self.x_label)
         ax.set_ylabel(self.y_label)
@@ -91,14 +92,19 @@ class H5Plot:
         color = None
 
         if path_size is not None:
-            size = self.query_datasets(path_size)
+            size, _ = self.query_datasets(path_size)
+            size = [s*self.blob_scale for s in size]
+        else:
+            size = [None] * len(self.h5)
 
         if path_color is not None:
-            color = self.query_datasets(path_color)
-        
+            color, _ = self.query_datasets(path_color)
+        else:
+            color = [None] * len(self.h5)
+
         fig, ax = plt.subplots(dpi=self.dpi)
-        for d_1, d_2, l in zip(data_1, data_2, self.labels):
-            ax.scatter(d_1, d_2, s=size, c=color, cmap=self.cmap,
+        for d_1, d_2, s, c, l in zip(data_1, data_2, size, color, self.labels):
+            ax.scatter(d_1, d_2, s=s, c=c, cmap=self.cmap,
                        edgecolor=self.edgecolor, label=l)
 
         ax.set_xlabel(self.x_label)
@@ -106,7 +112,7 @@ class H5Plot:
         ax.set_xlim(self.x_lim)
         ax.set_ylim(self.y_lim)
         ax.tick_params("both", right=1, top=1, direction="in")
-        
+
         plt.tight_layout()
         plt.legend()
         if self.save:
@@ -125,14 +131,20 @@ class H5Plot:
         color = None
 
         if path_size is not None:
-            size = self.query_datasets(path_size)
+            size, _ = self.query_datasets(path_size)
+            size = [s*self.blob_scale for s in size]
+        else:
+            size = [None] * len(self.h5)
 
         if path_color is not None:
-            color = self.query_datasets(path_color)
-        
-        fig, ax = plt.subplots(projection="3d")
+            color, _ = self.query_datasets(path_color)
+        else:
+            color = [None] * len(self.h5)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
         for d_1, d_2, d_3, l in zip(data_1, data_2, data_3, self.labels):
-            ax.scatter(d_1, d_2, d_3, s=size, c=color, cmap=self.cmap, label=l)
+            ax.scatter(d_1, d_2, d_3,cmap=self.cmap, label=l)
 
         ax.set_xlabel(self.x_label)
         ax.set_ylabel(self.y_label)
@@ -140,7 +152,7 @@ class H5Plot:
         ax.set_xlim(self.x_lim)
         ax.set_ylim(self.y_lim)
         ax.set_ylim(self.z_lim)
-        
+
         plt.tight_layout()
         plt.legend()
         if self.save:
