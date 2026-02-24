@@ -35,11 +35,12 @@ class H5Plot:
         self.x_lim = None
         self.y_lim = None
         self.z_lim = None
+        self.axis = None
         self.labels = [None]*len(self.h5)
         self.alpha = 0.5
         self.edgecolor = "k"
         self.cmap = "RdYlBu_r"
-        self.blob_scale = 1e-3
+        self.point_scale = 1e-3
 
         # histograms
         self.bins = None
@@ -88,12 +89,10 @@ class H5Plot:
                    path_size: str = None, path_color: str = None) -> None:
         data_1, _ = self.query_datasets(path_1)
         data_2, _ = self.query_datasets(path_2)
-        size = None
-        color = None
 
         if path_size is not None:
             size, _ = self.query_datasets(path_size)
-            size = [s*self.blob_scale for s in size]
+            size = [s*self.point_scale for s in size]
         else:
             size = [None] * len(self.h5)
 
@@ -127,14 +126,12 @@ class H5Plot:
         data_1, _ = self.query_datasets(path_1)
         data_2, _ = self.query_datasets(path_2)
         data_3, _ = self.query_datasets(path_3)
-        size = None
-        color = None
 
         if path_size is not None:
             size, _ = self.query_datasets(path_size)
-            size = [s*self.blob_scale for s in size]
+            size = [s*self.point_scale for s in size]
         else:
-            size = [None] * len(self.h5)
+            size = [self.point_scale] * len(self.h5)
 
         if path_color is not None:
             color, _ = self.query_datasets(path_color)
@@ -143,8 +140,8 @@ class H5Plot:
 
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")
-        for d_1, d_2, d_3, l in zip(data_1, data_2, data_3, self.labels):
-            ax.scatter(d_1, d_2, d_3,cmap=self.cmap, label=l)
+        for d_1, d_2, d_3, s, l in zip(data_1, data_2, data_3, size, self.labels):
+            ax.scatter(d_1, d_2, d_3, s=s, cmap=self.cmap, label=l, edgecolors=self.edgecolor)
 
         ax.set_xlabel(self.x_label)
         ax.set_ylabel(self.y_label)
@@ -152,6 +149,7 @@ class H5Plot:
         ax.set_xlim(self.x_lim)
         ax.set_ylim(self.y_lim)
         ax.set_ylim(self.z_lim)
+        ax.axis(self.axis)
 
         plt.tight_layout()
         plt.legend()

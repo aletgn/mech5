@@ -16,8 +16,8 @@ Voxel: voxels
 Classification: classification
 "Gap [µm]": gap
 
-Compactness: compactness
-Sphericity: sphericity
+Compactness: compactness_unit
+Sphericity: sphericity_unit
 
 "Pos. x [µm]": pos_x_unit
 "Pos. y [µm]": pos_y_unit
@@ -48,7 +48,7 @@ Label: ID
 "Relative diameter": relative_diameter
 "Cut surface [µm²]": cut_surface_unit
 
-"Min. edge distance (inside) [µm]": edge_dist_min_inside_unit
+"Min. edge distance (inside) [µm]": distance_unit
 "Min. edge distance (outside) [µm]": edge_dist_min_outside_unit
 "Max. edge distance (cut) [µm]": edge_dist_max_cut_unit
 
