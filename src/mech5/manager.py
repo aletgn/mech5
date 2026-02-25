@@ -550,6 +550,43 @@ class SegmentedDatasetH5File(H5File):
         destination.write(f"{destination._pores}/ID", new_ID)
 
 
+class RoughnessDatasetH5File(H5File):
+
+    def __init__(self, filename, mode, overwrite = False):
+        super().__init__(filename, mode, overwrite)
+        self.root = "roughness"
+        self._points = f"{self.root}/points"
+
+
+    def load_points(self, array):
+        self.write(f"{self._points}_original", array)
+        self.write(f"{self._points}", array)
+        self.write(f"{self.root}/numerosity", array.shape[0])
+
+
+    def write_units(self, original: str, target: str, scale: float):
+        points = points = self.read(f"{self._points}")
+        self.write(f"{self.root}/common/units_original", original)
+        self.write(f"{self.root}/common/units", target)
+        self.write(f"{self.root}/common/scale", scale)
+        self.write(f"{self._points}", points*scale)
+
+
+    def set_edges_centroid(self):
+        points = self.read(f"{self._points}")
+        self.write(f"{self.root}/min", points.min(axis=0))
+        self.write(f"{self.root}/max", points.max(axis=0))
+        self.write(f"{self.root}/centroid", points.mean(axis=0))
+
+
+    def to_centroid(self):
+        p = self.read(f"{self._points}")
+        c = p.mean(axis=0)
+        print(c)
+        self.write(f"{self._points}", p - c)
+        self.set_edges_centroid()
+
+
 TEST_FILE =  "./testh5.h5"
 
 
@@ -667,6 +704,7 @@ def test_merge_segmented():
 
     hb.close()
     hc.close()
+
 
 if __name__ == "__main__":
     # print("=== Test open and close ===")
