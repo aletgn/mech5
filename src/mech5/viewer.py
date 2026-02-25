@@ -29,9 +29,9 @@ class H5Plot:
         self.x_label = None
         self.y_label = None
         self.z_label = None
-        self.x_scale = None
-        self.y_scale = None
-        self.z_scale = None
+        self.x_scale = "linear"
+        self.y_scale = "linear"
+        self.z_scale = "linear"
         self.x_lim = None
         self.y_lim = None
         self.z_lim = None
@@ -74,6 +74,7 @@ class H5Plot:
         ax.set_ylabel(self.y_label)
         ax.set_xlim(self.x_lim)
         ax.set_ylim(self.y_lim)
+        ax.set_xscale(self.x_scale)
         ax.tick_params("both", right=1, top=1, direction="in")
 
         plt.legend()
@@ -104,7 +105,7 @@ class H5Plot:
         fig, ax = plt.subplots(dpi=self.dpi)
         for d_1, d_2, s, c, l in zip(data_1, data_2, size, color, self.labels):
             ax.scatter(d_1, d_2, s=s, c=c, cmap=self.cmap,
-                       edgecolor=self.edgecolor, label=l)
+                       edgecolor=self.edgecolor, alpha=self.alpha, label=l)
 
         ax.set_xlabel(self.x_label)
         ax.set_ylabel(self.y_label)
