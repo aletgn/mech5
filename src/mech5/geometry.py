@@ -34,6 +34,66 @@ def eq_diameter(volume: np.array) -> np.ndarray:
     return (6.0 * volume / np.pi) ** (1.0 / 3.0)
 
 
+def residual_cylinder(p: np.ndarray, points: np.ndarray):
+    x0, y0, r = p
+    return (points[:,0]-x0)**2 + (points[:,1]-y0)**2 - r**2
+
+
+from scipy.optimize import least_squares
+def fit_cylinder(points: np.ndarray):
+
+    xy = points[:, :2]
+    x0_init, y0_init = xy.mean(axis=0)
+    r_init = np.mean(np.sqrt((xy[:, 0]- x0_init)**2 + (xy[:,1] - y0_init)**2))
+
+    initial_guess = [x0_init, y0_init, r_init]
+    result = least_squares(residual_cylinder, initial_guess, args=(xy,))
+
+    x0, y0, r0 = result.x
+    z_min, z_max = points[:, 2].min(), points[:, 2].max()
+
+    return x0, y0, r0, z_min, z_max
+
+
+def fit_cylinder_slices(points: np.ndarray, breaks: np.ndarray):
+    _x0 = []
+    _y0 = []
+    _r0  = []
+    _z_min = []
+    _z_max = []
+    _z_slice = []
+
+    for i in tqdm(range(0, len(breaks) - 1), desc=f"Fit cylinder slices"):
+        z_min, z_max = breaks[i], breaks[i + 1]
+        zslice = points[(points[:, 2] >= z_min) & (points[:, 2] < z_max)]
+
+        if len(zslice) == 0:
+            continue
+
+        x0, y0, r0, z_min, z_max = fit_cylinder(zslice)
+        _x0.append(x0)
+        _y0.append(y0)
+        _r0.append(r0)
+        _z_min.append(z_min)
+        _z_max.append(z_max)
+        _z_slice.append(zslice)
+
+    return np.asarray(_x0), np.asarray(_y0), np.asarray(_r0), np.asarray(_z_min), np.asarray(_z_max), _z_slice
+
+
+def unwrap_cylinder(points: np.ndarray, x0: float=0., y0: float=0., r0: float=0.):
+
+    points = points - np.array([x0, y0, 0])
+    theta = np.arctan2(points[:, 1], points[:, 0])
+    r = np.sqrt(points[:, 0]**2 + points[:, 1]**2)
+
+    u = theta * r # arc length
+    v = points[:, 2] # axis
+    w = r - r0 # altitude
+
+    return np.vstack([u, v, w]).T
+
+
 class GeometryPostProcessor:
     """
     Post-processing utilities for voxel-based geometries.
@@ -544,13 +604,19 @@ class RoughnessProcessor:
         self.h5 = h5
 
 
-    def unroll(self):
-        ...
+    def unroll_slices(self, breaks: np.ndarray = None):
+        points = self.h5.read("/roughness/points")
+        _x0, _y0, _r0, _z_min, _z_max, _z_slice = fit_cylinder_slices(points, breaks)
+        unrolled = np.vstack([unwrap_cylinder(zs, x0, y0, ro) for zs, x0, y0, ro in
+                              zip(_z_slice, _x0, _y0, _r0)])
+
+        self.h5.write("/roughness/unroll/points", unrolled)
+
+        return unrolled
 
 
     def partition(self, x_breaks, y_breaks):
         ...
-
 
 
 def test_tree():
