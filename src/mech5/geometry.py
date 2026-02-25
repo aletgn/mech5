@@ -538,6 +538,21 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         return area
 
 
+class RoughnessProcessor:
+
+    def __init__(self, h5: H5File):
+        self.h5 = h5
+
+
+    def unroll(self):
+        ...
+
+
+    def partition(self, x_breaks, y_breaks):
+        ...
+
+
+
 def test_tree():
     h5 = SegmentedDatasetH5File(filename="/home/ale/Desktop/example/cyl_3.7_27_v3.h5", mode="r")
     v = GeometryPostProcessor(cell_size=3.7)

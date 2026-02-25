@@ -161,6 +161,73 @@ class H5Plot:
             plt.show()
 
 
+class H5PlotRoughness(H5Plot):
+
+    def __init__(self, *h5file):
+        super().__init__(*h5file)
+
+
+    def scatter_2d(self, path: str, x: int=0, y: int=1, color: bool = False, samples: int=1000):
+        z = list({0, 1, 2} - {x, y})[0]
+        data, _ = self.query_datasets(path)
+
+        fig, ax = plt.subplots(dpi=self.dpi)
+        for d, l in zip(data, self.labels):
+            
+            if samples is not None and samples < len(d):
+                idx = np.random.choice(len(d), size=samples, replace=False)
+                d = d[idx]
+            
+            c = d[:, z] if color else None
+            ax.scatter(d[:, x], d[:, y], s=self.point_scale, c=c, cmap=self.cmap,
+                       edgecolor=self.edgecolor, alpha=self.alpha, label=l)
+
+        ax.axis(self.axis)
+        ax.set_xlabel(self.x_label)
+        ax.set_ylabel(self.y_label)
+        ax.set_xlim(self.x_lim)
+        ax.set_ylim(self.y_lim)
+        ax.tick_params("both", right=1, top=1, direction="in")
+
+        plt.tight_layout()
+        plt.legend()
+        if self.save:
+            plt.savefig(f"{self.folder}/{self.plot_name}.{self.format}",
+                        dpi=self.dpi, format=self.format, bbox_inches="tight")
+        else:
+            plt.show()
+    
+
+    def scatter_3d(self, path: str, color=None, samples: int=1000):
+        data, _ = self.query_datasets(path)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
+        for d, l in zip(data, self.labels):
+            
+            if samples is not None and samples < len(d):
+                idx = np.random.choice(len(d), size=samples, replace=False)
+                d = d[idx]
+            c = d[:, color] if color is not None else None
+
+            ax.scatter(d[:, 0], d[:, 1], d[:, 2], s=self.point_scale, c=c, cmap=self.cmap,
+                       edgecolor=self.edgecolor, alpha=self.alpha, label=l)
+
+        ax.axis(self.axis)
+        ax.set_xlabel(self.x_label)
+        ax.set_ylabel(self.y_label)
+        ax.set_xlim(self.x_lim)
+        ax.set_ylim(self.y_lim)
+        ax.tick_params("both", right=1, top=1, direction="in")
+
+        plt.tight_layout()
+        plt.legend()
+        if self.save:
+            plt.savefig(f"{self.folder}/{self.plot_name}.{self.format}",
+                        dpi=self.dpi, format=self.format, bbox_inches="tight")
+        else:
+            plt.show()
+
 def test_query_data():
     h5 = SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r")
     v = H5Plot(h5)
