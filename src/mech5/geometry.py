@@ -598,25 +598,52 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
         return area
 
 
-class RoughnessProcessor:
+class TopographyProcessor:
 
-    def __init__(self, h5: H5File):
-        self.h5 = h5
+    def __init__(self):
+        pass
 
 
-    def unroll_slices(self, breaks: np.ndarray = None):
-        points = self.h5.read("/roughness/points")
+    def unroll_topography(self, points: np.ndarray) -> np.ndarray:
+        _x0, _y0, _r0, _z_min, _z_max = fit_cylinder(points)
+        return unwrap_cylinder(points, _x0, _y0, _r0)
+
+
+    def unroll_topography_slices(self, points: np.ndarray, breaks: np.ndarray = None) -> np.ndarray:
+        if breaks is None:
+            raise NotImplemented("Must use unroll (method).")
         _x0, _y0, _r0, _z_min, _z_max, _z_slice = fit_cylinder_slices(points, breaks)
         unrolled = np.vstack([unwrap_cylinder(zs, x0, y0, ro) for zs, x0, y0, ro in
                               zip(_z_slice, _x0, _y0, _r0)])
+        
+        return unrolled
+    
 
+    def partition(self, x_breaks: np.ndarray, y_breaks: np.ndarray):
+        ...
+
+
+class RoughnessProcessor(TopographyProcessor):
+
+
+    def __init__(self, h5: H5File):
+        super().__init__()
+        self.h5 = h5
+
+
+    def unroll(self):
+        points = self.h5.read("/roughness/points")
+        unrolled = self.unroll_topography(points)
+        self.h5.write("/roughness/unroll/points", unrolled)
+    
+    def unroll_slices(self, breaks: np.ndarray = None):
+        points = self.h5.read("/roughness/points")
+        unrolled = self.unroll_topography_slices(points, breaks)
         self.h5.write("/roughness/unroll/points", unrolled)
 
-        return unrolled
 
-
-    def partition(self, x_breaks, y_breaks):
-        ...
+    # def partition(self, x_breaks, y_breaks):
+    #     ...
 
 
 def test_tree():
