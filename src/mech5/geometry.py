@@ -606,7 +606,8 @@ class TopographyProcessor:
 
     def unroll_topography(self, points: np.ndarray) -> np.ndarray:
         _x0, _y0, _r0, _z_min, _z_max = fit_cylinder(points)
-        return unwrap_cylinder(points, _x0, _y0, _r0)
+        unrolled = unwrap_cylinder(points, _x0, _y0, _r0)
+        return unrolled - unrolled.mean(axis=0)
 
 
     def unroll_topography_slices(self, points: np.ndarray, breaks: np.ndarray = None) -> np.ndarray:
@@ -615,16 +616,68 @@ class TopographyProcessor:
         _x0, _y0, _r0, _z_min, _z_max, _z_slice = fit_cylinder_slices(points, breaks)
         unrolled = np.vstack([unwrap_cylinder(zs, x0, y0, ro) for zs, x0, y0, ro in
                               zip(_z_slice, _x0, _y0, _r0)])
-        
-        return unrolled
-    
 
-    def partition(self, x_breaks: np.ndarray, y_breaks: np.ndarray):
-        ...
+        return unrolled - unrolled.mean(axis=0)
+
+
+    def partition(self, points: np.ndarray,
+                  x_edges: np.ndarray=None,
+                  y_edges: np.ndarray=None,
+                  x_steps: int=10,
+                  y_steps: int=10,
+                  center: bool=False) -> List[np.ndarray]:
+
+        if x_edges is None:
+            x_min = points.min(axis=0)[0]
+            x_max = points.max(axis=0)[0]
+            x_edges = np.linspace(x_min, x_max, x_steps+1)
+        else:
+            ...
+
+        if y_edges is None:
+            y_min = points.min(axis=0)[1]
+            y_max = points.max(axis=0)[1]
+            y_edges = np.linspace(y_min, y_max, y_steps+1)
+        else:
+            ...
+
+        center = 1 if center else 0
+        centroid = center * points.mean(axis=0)
+
+        x_idx = np.digitize(points[:, 0], x_edges) - 1
+        y_idx = np.digitize(points[:, 1], y_edges) - 1
+
+        valid = ((x_idx >= 0) & (x_idx < len(x_edges) - 1) &
+                 (y_idx >= 0) & (y_idx < len(y_edges) - 1))
+
+        x_idx = x_idx[valid]
+        y_idx = y_idx[valid]
+        points = points[valid]
+
+        n_x = len(x_edges) - 1
+        n_y = len(y_edges) - 1
+
+        partitions = []
+        cell_bounds = []
+        z_edges = []
+        for j in range(n_y):
+            for i in range(n_x):
+                mask = (x_idx == i) & (y_idx == j)
+                partitions.append(points[mask] - centroid)
+                cell_bounds.append([[x_edges[i]-centroid[0], x_edges[i + 1]-centroid[0]],
+                                    [y_edges[j]-centroid[1], y_edges[j + 1]-centroid[1]]])
+                z_min = (points[mask] - centroid).min(axis=0)[-1]
+                z_max = (points[mask] - centroid).max(axis=0)[-1]
+                z_edges.append([z_min, z_max])
+
+        return partitions, x_edges, y_edges, z_edges, cell_bounds
+
+
+    def to_txt(self, points: np.ndarray, path, delimiter):
+        np.savetxt(path, points[: 1000], delimiter=delimiter)
 
 
 class RoughnessProcessor(TopographyProcessor):
-
 
     def __init__(self, h5: H5File):
         super().__init__()
@@ -635,15 +688,52 @@ class RoughnessProcessor(TopographyProcessor):
         points = self.h5.read("/roughness/points")
         unrolled = self.unroll_topography(points)
         self.h5.write("/roughness/unroll/points", unrolled)
-    
+
+
     def unroll_slices(self, breaks: np.ndarray = None):
         points = self.h5.read("/roughness/points")
         unrolled = self.unroll_topography_slices(points, breaks)
         self.h5.write("/roughness/unroll/points", unrolled)
 
 
-    # def partition(self, x_breaks, y_breaks):
-    #     ...
+    def partition(self, path,
+                  x_edges = None, y_edges = None,
+                  x_steps = 10, y_steps = 10, center=0):
+        
+        points = self.h5.read(path)
+        
+        try:
+            self.h5.delete("/roughness/partitions/")
+            print("Partitions deleted.")
+        except:
+            print("Partitions not found.")
+
+        partitions, x_edges, y_edges, z_edges, bounds = super().partition(points,
+                                                                          x_edges,
+                                                                          y_edges,
+                                                                          x_steps,
+                                                                          y_steps,
+                                                                          center)
+
+        self.h5.write("/roughness/partitions/x_edges", x_edges)
+        self.h5.write("/roughness/partitions/y_edges", y_edges)
+        self.h5.write("/roughness/partitions/z_edges", z_edges)
+
+        n_digits = len(str(len(partitions)))
+        for idx, (p, b, z) in enumerate(zip(partitions, bounds, z_edges)):
+            x_min, x_max = b[0]
+            y_min, y_max = b[1]
+            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/points", p)
+            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/x_edges", b[0])
+            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/y_edges", b[1])
+            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/z_edges", z)
+
+        return partitions, x_edges, y_edges, z_edges, bounds
+
+
+    def to_txt(self, dataset, path, delimiter):
+        points = self.h5.read(dataset)
+        super().to_txt(points, path, delimiter)
 
 
 def test_tree():
