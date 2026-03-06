@@ -175,11 +175,11 @@ class H5PlotRoughness(H5Plot):
 
         fig, ax = plt.subplots(dpi=self.dpi)
         for d, l in zip(data, self.labels):
-            
+
             if samples is not None and samples < len(d):
                 idx = np.random.choice(len(d), size=samples, replace=False)
                 d = d[idx]
-            
+
             c = d[:, z] if color else None
             ax.scatter(d[:, x], d[:, y], s=self.point_scale, c=c, cmap=self.cmap,
                        edgecolor=self.edgecolor, alpha=self.alpha, label=l)
@@ -198,7 +198,7 @@ class H5PlotRoughness(H5Plot):
                         dpi=self.dpi, format=self.format, bbox_inches="tight")
         else:
             plt.show()
-    
+
 
     def scatter_3d(self, path: str, color=None, samples: int=1000):
         data, _ = self.query_datasets(path)
@@ -206,7 +206,7 @@ class H5PlotRoughness(H5Plot):
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")
         for d, l in zip(data, self.labels):
-            
+
             if samples is not None and samples < len(d):
                 idx = np.random.choice(len(d), size=samples, replace=False)
                 d = d[idx]
@@ -276,7 +276,7 @@ class H5PlotRoughness(H5Plot):
             ax.set_ylabel(self.y_label)
             ax.set_xlim(self.x_lim)
             ax.set_ylim(self.y_lim)
-        
+
         else:
             fig = plt.figure(dpi=self.dpi)
             ax = fig.add_subplot(projection="3d")
@@ -288,7 +288,7 @@ class H5PlotRoughness(H5Plot):
                 ax.scatter(p_sample[:, 0], p_sample[:, 1], p_sample[:, 2],
                            color=colour,
                            edgecolors=self.edgecolor)
-            
+
             ax.axis(self.axis)
             ax.set_xlabel(self.x_label)
             ax.set_ylabel(self.y_label)
@@ -296,7 +296,7 @@ class H5PlotRoughness(H5Plot):
             ax.set_xlim(self.x_lim)
             ax.set_ylim(self.y_lim)
             ax.set_zlim(self.y_lim)
-        
+
         ax.tick_params("both", right=1, top=1, direction="in")
         sm = cm.ScalarMappable(norm=mcolors.Normalize(vmin=z_max.min(),
                                                       vmax=z_max.max()),
@@ -313,8 +313,8 @@ class H5PlotRoughness(H5Plot):
                         dpi=self.dpi, format=self.format, bbox_inches="tight")
         else:
             plt.show()
-   
-        
+
+
 def test_query_data():
     h5 = SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r")
     v = H5Plot(h5)

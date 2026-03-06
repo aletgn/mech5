@@ -587,6 +587,30 @@ class RoughnessDatasetH5File(H5File):
         self.set_edges_centroid()
 
 
+    def query_partition(self, ID: int):
+        ids = self.read("/roughness/partitions" + "/ID")
+        offsets = self.read("/roughness/partitions/offsets")
+        points = self.read("/roughness/partitions/points")
+        x_edges = self.read("/roughness/partitions/x_edges")
+        y_edges = self.read("/roughness/partitions/y_edges")
+
+        loc = np.where(ids == ID)[0].squeeze()
+        start = offsets[loc]
+        end = offsets[loc + 1]
+        partition = points[start: end]
+
+        n_x = len(x_edges) - 1
+        i = loc % n_x
+        j = loc // n_x
+        cell_bounds = [[x_edges[i], x_edges[i + 1]],
+                  [y_edges[j], y_edges[j + 1]]]
+
+        return {"ID": ID,
+                "cell_bounds": cell_bounds,
+                "points": partition}
+
+
+
 TEST_FILE =  "./testh5.h5"
 
 

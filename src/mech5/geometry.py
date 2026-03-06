@@ -624,8 +624,7 @@ class TopographyProcessor:
                   x_edges: np.ndarray=None,
                   y_edges: np.ndarray=None,
                   x_steps: int=10,
-                  y_steps: int=10,
-                  center: bool=False) -> List[np.ndarray]:
+                  y_steps: int=10) -> List[np.ndarray]:
 
         if x_edges is None:
             x_min = points.min(axis=0)[0]
@@ -641,9 +640,6 @@ class TopographyProcessor:
         else:
             ...
 
-        center = 1 if center else 0
-        centroid = center * points.mean(axis=0)
-
         x_idx = np.digitize(points[:, 0], x_edges) - 1
         y_idx = np.digitize(points[:, 1], y_edges) - 1
 
@@ -654,23 +650,17 @@ class TopographyProcessor:
         y_idx = y_idx[valid]
         points = points[valid]
 
+        # bins
         n_x = len(x_edges) - 1
         n_y = len(y_edges) - 1
 
         partitions = []
-        cell_bounds = []
-        z_edges = []
         for j in range(n_y):
             for i in range(n_x):
                 mask = (x_idx == i) & (y_idx == j)
-                partitions.append(points[mask] - centroid)
-                cell_bounds.append([[x_edges[i]-centroid[0], x_edges[i + 1]-centroid[0]],
-                                    [y_edges[j]-centroid[1], y_edges[j + 1]-centroid[1]]])
-                z_min = (points[mask] - centroid).min(axis=0)[-1]
-                z_max = (points[mask] - centroid).max(axis=0)[-1]
-                z_edges.append([z_min, z_max])
+                partitions.append(points[mask])
 
-        return partitions, x_edges, y_edges, z_edges, cell_bounds
+        return partitions, x_edges, y_edges
 
 
     def to_txt(self, points: np.ndarray, path, delimiter):
@@ -698,38 +688,30 @@ class RoughnessProcessor(TopographyProcessor):
 
     def partition(self, path,
                   x_edges = None, y_edges = None,
-                  x_steps = 10, y_steps = 10, center=0):
-        
+                  x_steps = 10, y_steps = 10):
+
         points = self.h5.read(path)
-        
+
         try:
             self.h5.delete("/roughness/partitions/")
             print("Partitions deleted.")
         except:
             print("Partitions not found.")
 
-        partitions, x_edges, y_edges, z_edges, bounds = super().partition(points,
-                                                                          x_edges,
-                                                                          y_edges,
-                                                                          x_steps,
-                                                                          y_steps,
-                                                                          center)
+        partitions, x_edges, y_edges, = super().partition(points,
+                                                          x_edges, y_edges,
+                                                          x_steps, y_steps)
+        lengths = [pp.shape[0] for pp in partitions]
+        offsets = np.zeros(len(lengths) + 1, dtype=int)
+        offsets[1:] = np.cumsum(lengths)
 
+        self.h5.write("/roughness/partitions/ID", list(range(0, len(partitions))))
         self.h5.write("/roughness/partitions/x_edges", x_edges)
         self.h5.write("/roughness/partitions/y_edges", y_edges)
-        self.h5.write("/roughness/partitions/z_edges", z_edges)
-
-        n_digits = len(str(len(partitions)))
-        for idx, (p, b, z) in enumerate(zip(partitions, bounds, z_edges)):
-            x_min, x_max = b[0]
-            y_min, y_max = b[1]
-            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/points", p)
-            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/x_edges", b[0])
-            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/y_edges", b[1])
-            self.h5.write(f"/roughness/partitions/ID_{str(idx).zfill(n_digits)}/z_edges", z)
-
-        return partitions, x_edges, y_edges, z_edges, bounds
-
+        self.h5.write("/roughness/partitions/x_bins", x_steps)
+        self.h5.write("/roughness/partitions/y_bins", y_steps)
+        self.h5.write("/roughness/partitions/points", np.vstack(partitions))
+        self.h5.write("/roughness/partitions/offsets", offsets)
 
     def to_txt(self, dataset, path, delimiter):
         points = self.h5.read(dataset)
