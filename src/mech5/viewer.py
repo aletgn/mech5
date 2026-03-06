@@ -234,41 +234,21 @@ class H5PlotRoughness(H5Plot):
     def inspect_partition(self, path: str, ID: str = None, three: bool = False, samples: int = 1000):
 
         points = []
-        z_norm = []
-        z_max = []
 
         for h in self.h5:
-
             if ID is None:
-                p_paths = h.list_groups("/roughness/partitions")
-                for p in p_paths:
-                    pts = h.read(f"{p}/points")
-                    if len(pts) == 0:
-                        continue
-                    points.append(pts)
-                    # z_norm.append(pts[:, 2].max())
-                    z_max.append(h.read(f"{p}/z_edges")[-1])
+                for II in h.read("roughness/partitions/ID"):
+                    points.append(h.query_partition(II)["points"])
             else:
-                pts = h.read(f"/roughness/partitions/{ID}/points")
-                if len(pts) > 0:
-                    points.append(pts)
-                    # z_norm.append(pts[:, 2].max())
-                    z_max.append(h.read(f"/roughness/partitions/{ID}/z_edges")[-1])
-
-        # z_norm = np.asarray(z_norm)
-        z_max = np.asarray(z_max)
-        norm = mcolors.Normalize(vmin=z_max.min(), vmax=z_max.max())
-        cmap = cm.get_cmap(self.cmap)
+                points.append(h.query_partition(ID)["points"])
 
         if not three:
             fig, ax = plt.subplots(dpi=self.dpi)
-            for p, z_val in zip(points, z_max):
+            for p in points:
                 n = min(samples, len(p))
                 idx = np.random.choice(len(p), size=n, replace=False)
                 p_sample = p[idx]
-                colour = cmap(norm(z_val))
                 ax.scatter(p_sample[:, 0], p_sample[:, 1],
-                           color=colour,
                            edgecolors=self.edgecolor,
                            s=self.point_scale)
             ax.axis(self.axis)
@@ -280,13 +260,11 @@ class H5PlotRoughness(H5Plot):
         else:
             fig = plt.figure(dpi=self.dpi)
             ax = fig.add_subplot(projection="3d")
-            for p, z_val in zip(points, z_max):
+            for p in points:
                 n = min(samples, len(p))
                 idx = np.random.choice(len(p), size=n, replace=False)
                 p_sample = p[idx]
-                colour = cmap(norm(z_val))
                 ax.scatter(p_sample[:, 0], p_sample[:, 1], p_sample[:, 2],
-                           color=colour,
                            edgecolors=self.edgecolor)
 
             ax.axis(self.axis)
@@ -298,13 +276,6 @@ class H5PlotRoughness(H5Plot):
             ax.set_zlim(self.y_lim)
 
         ax.tick_params("both", right=1, top=1, direction="in")
-        sm = cm.ScalarMappable(norm=mcolors.Normalize(vmin=z_max.min(),
-                                                      vmax=z_max.max()),
-                                                      cmap=cmap)
-        cbar = fig.colorbar(sm, ax=ax)
-        cbar.set_ticks(np.linspace(z_max.min(), z_max.max(), 10))
-        cbar.set_ticklabels([f"{v:.1f}" for v in np.linspace(z_max.min(), z_max.max(), 10)])
-
 
         plt.tight_layout()
         plt.legend()
