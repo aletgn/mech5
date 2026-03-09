@@ -43,6 +43,9 @@ class H5Plot:
         self.edgecolor = "k"
         self.cmap = "RdYlBu_r"
         self.point_scale = 1e-3
+        self.elev = None
+        self.azim = None
+        self.proj = "persp"
 
         # histograms
         self.bins = None
@@ -153,6 +156,8 @@ class H5Plot:
         ax.set_ylim(self.y_lim)
         ax.set_ylim(self.z_lim)
         ax.axis(self.axis)
+        ax.view_init(elev=self.elev, azim=self.azim)
+        ax.set_proj_type(self.proj)
 
         plt.tight_layout()
         plt.legend()
