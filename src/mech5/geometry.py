@@ -602,18 +602,60 @@ class VoxelGeometryPostProcessor(GeometryPostProcessor):
 
 
 class TopographyProcessor:
+    """Processor for cylindrical topography data, including unrolling and cropping."""
 
     def __init__(self):
+        """Initialize the topography processor."""
         pass
 
 
     def unroll_topography(self, points: np.ndarray) -> np.ndarray:
+        """
+        Unroll a cylindrical topography point cloud.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) containing x, y, z coordinates.
+
+        Returns
+        -------
+        unrolled : np.ndarray
+            Unrolled point cloud of shape (N, 3), mean-subtracted along each axis.
+        x0 : float
+            X coordinate of the cylinder axis.
+        y0 : float
+            Y coordinate of the cylinder axis.
+        r0 : float
+            Radius of the fitted cylinder.
+        """
         _x0, _y0, _r0, _z_min, _z_max = fit_cylinder(points)
         unrolled = unwrap_cylinder(points, _x0, _y0, _r0)
         return unrolled - unrolled.mean(axis=0), _x0, _y0, _r0
 
 
     def unroll_topography_slices(self, points: np.ndarray, breaks: np.ndarray = None) -> np.ndarray:
+        """
+        Unroll a cylindrical topography point cloud in slices along the cylinder axis.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) containing x, y, z coordinates.
+        breaks : np.ndarray, optional
+            Array defining the slicing locations along the cylinder axis. Required.
+
+        Returns
+        -------
+        unrolled : np.ndarray
+            Unrolled point cloud of shape (N, 3), mean-subtracted along each axis.
+        x0_list : list
+            List of X coordinates of the cylinder axes for each slice.
+        y0_list : list
+            List of Y coordinates of the cylinder axes for each slice.
+        r0_list : list
+            List of radii of the fitted cylinders for each slice.
+        """
         if breaks is None:
             raise NotImplemented("Must use unroll (method).")
         _x0, _y0, _r0, _z_min, _z_max, _z_slice = fit_cylinder_slices(points, breaks)
@@ -624,7 +666,24 @@ class TopographyProcessor:
 
 
     def crop(self, points: np.ndarray, axis: int,
-             edges: List[float] = [-np.inf, np.inf]):
+             edges: List[float] = [-np.inf, np.inf]) -> np.ndarray:
+        """
+        Crop a point cloud along a specified axis.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) containing x, y, z coordinates.
+        axis : int
+            Axis along which to crop (0=x, 1=y, 2=z).
+        edges : list of float, default [-np.inf, np.inf]
+            Lower and upper bounds for cropping.
+
+        Returns
+        -------
+        cropped : np.ndarray
+            Points within the specified bounds along the given axis.
+        """
         lower, upper = edges
         mask = (points[:, axis] >= lower) & (points[:, axis] <= upper)
         return points[mask]
@@ -643,6 +702,8 @@ class TopographyProcessor:
             Grid pixel size in the same units as x and y.
         statistic : str, default="mean"
             Statistic to compute per pixel (e.g. 'mean', 'max', 'min', 'count', 'median').
+        fill: bool
+            Fill nans. Default is True.
 
         Returns
         -------
@@ -685,6 +746,27 @@ class TopographyProcessor:
 
     def rasterize_grid(self, points: np.ndarray,
                        pixel_size: float, method: str = "linear"):
+        """
+        Rasterize a 3D point cloud onto a 2D grid using interpolation.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) containing x, y, z coordinates.
+        pixel_size : float
+            Grid spacing in the same units as x and y.
+        method : str, default="linear"
+            Interpolation method. Options: 'linear', 'nearest', 'cubic'.
+
+        Returns
+        -------
+        Z : np.ndarray
+            2D array of interpolated z values on the grid of shape (ny, nx).
+        xi : np.ndarray
+            1D array of x coordinates of the grid points.
+        yi : np.ndarray
+            1D array of y coordinates of the grid points.
+        """
         x = points[:, 0]
         y = points[:, 1]
         z = points[:, 2]
@@ -752,11 +834,16 @@ class TopographyProcessor:
 class RoughnessProcessor(TopographyProcessor):
 
     def __init__(self, h5: H5File):
+        """Processor for roughness point clouds stored in an HDF5 file,
+        including unrolling, cropping, and rasterization."""
         super().__init__()
         self.h5 = h5
 
 
     def unroll(self):
+        """
+        Unroll the entire roughness point cloud and save results in the HDF5 file.
+        """
         points = self.h5.read("/roughness/points")
         unrolled, _x0, _y0, _r0 = self.unroll_topography(points)
         self.h5.write("/roughness/unroll/points", unrolled)
@@ -766,6 +853,14 @@ class RoughnessProcessor(TopographyProcessor):
 
 
     def unroll_slices(self, breaks: np.ndarray = None):
+        """
+        Unroll the roughness point cloud in slices along the cylinder axis and save results.
+
+        Parameters
+        ----------
+        breaks : np.ndarray, optional
+            Array defining the slicing locations along the cylinder axis.
+        """
         points = self.h5.read("/roughness/points")
         unrolled, _x0, _y0, _r0 = self.unroll_topography_slices(points, breaks)
         self.h5.write("/roughness/unroll/points", unrolled)
@@ -775,7 +870,19 @@ class RoughnessProcessor(TopographyProcessor):
         self.h5.write("/roughness/unroll/breaks", breaks)
 
 
-    def crop(self, path, axis, edges = [-np.inf, np.inf]):
+    def crop(self, path: str, axis: int, edges: List[float] = [-np.inf, np.inf]):
+        """
+        Crop points along a specified axis and save the result in the HDF5 file.
+
+        Parameters
+        ----------
+        path : str
+            HDF5 dataset path to read points from.
+        axis : int
+            Axis along which to crop (0=x, 1=y, 2=z).
+        edges : list of float, default [-np.inf, np.inf]
+            Lower and upper bounds for cropping.
+        """
         points = self.h5.read(path)
 
         cropped = super().crop(points, axis, edges)
@@ -790,7 +897,27 @@ class RoughnessProcessor(TopographyProcessor):
             self.h5.write("/roughness/cropped/edges", edges)
 
 
-    def rasterize_bin(self, path, pixel_size, statistic = "mean", fill=True):
+    def rasterize_bin(self, path: str, pixel_size: float, statistic: str = "mean",
+                      fill: bool=True) -> np.ndarray:
+        """
+        Rasterize a point cloud using binning and save the raster in the HDF5 file.
+
+        Parameters
+        ----------
+        path : str
+            HDF5 dataset path containing the points to rasterize.
+        pixel_size : float
+            Pixel size for the raster grid.
+        statistic : str, default="mean"
+            Statistic to compute per pixel ('mean', 'max', 'min', 'count', 'median').
+        fill : bool, default=True
+            If True, fill empty pixels using nearest-neighbour interpolation.
+
+        Returns
+        -------
+        raster : np.ndarray
+            2D raster grid of shape (ny, nx).
+        """
         points = self.h5.read(path)
         raster, _, _ = super().rasterize_bin(points, pixel_size, statistic, fill)
         self.h5.write("/roughness/raster/points", raster)
@@ -802,7 +929,7 @@ class RoughnessProcessor(TopographyProcessor):
         return raster
 
 
-    def rasterize_grid(self, path, pixel_size, method = "linear"):
+    def rasterize_grid(self, path: str, pixel_size: float, method: str="linear") -> np.ndarray:
         points = self.h5.read(path)
         raster, _, _ = super().rasterize_grid(points, pixel_size, method)
         self.h5.write("/roughness/raster/points", raster)
