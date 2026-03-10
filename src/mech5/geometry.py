@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from mech5.manager import H5File, SegmentedDatasetH5File
 from sklearn.decomposition import IncrementalPCA
+from surfalize import Surface
 
 
 def eq_diameter(volume: np.array) -> np.ndarray:
@@ -890,6 +891,10 @@ class RoughnessProcessor(TopographyProcessor):
         including unrolling, cropping, and rasterization."""
         super().__init__()
         self.h5 = h5
+        self.parameters = ['Sa', 'Sq', 'Sp', 'Sv', 'Sz',
+                           'Ssk', 'Sku', 'Sdr', 'Sdq', 'Sal', 'Str',
+                           'Sk', 'Spk', 'Svk',
+                           'Smr1', 'Smr2', 'Sxp', 'Vmp', 'Vmc', 'Vvv', 'Vvc']
 
 
     def unroll(self):
@@ -1081,6 +1086,34 @@ class RoughnessProcessor(TopographyProcessor):
         self.h5.write("/roughness/partitions/y_bins", y_steps)
         self.h5.write("/roughness/partitions/points", np.vstack(partitions))
         self.h5.write("/roughness/partitions/offsets", offsets)
+
+
+    def aeral_roughness(self, ID: int,
+                        cutoff: float, cutoff2: float = None, level: bool = True):
+        
+        raster = self.h5.query_raster_partition(ID)["points"]
+        pix_x = self.h5.read("/roughness/raster/pix_x")
+        pix_y = self.h5.read("/roughness/raster/pix_y")
+
+        surface = Surface(raster, step_x=pix_x, step_y=pix_y)
+        
+        if level:
+            surface.level(inplace=True)
+
+        surface.filter("bandpass", cutoff, cutoff2, inplace=True)
+        return surface.roughness_parameters(self.parameters)
+    
+
+    def all_aeral_roughness(self, cutoff: float, cutoff2: float = None, level: bool = True):
+        ids = self.h5.read("/roughness/partitions/ID")
+        dicts = []
+        for i in ids:
+            dicts.append(self.aeral_roughness(i, cutoff, cutoff2, level))
+        
+        concatenated = {k: [d[k] for d in dicts] for k in self.parameters}
+        root = "/roughness/partitions"
+        for k in concatenated.keys():
+            self.h5.write(f"{root}/{k}", concatenated[k])
 
     def to_txt(self, dataset, path, delimiter):
         points = self.h5.read(dataset)
