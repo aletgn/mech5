@@ -7,6 +7,9 @@ from itertools import product
 
 import numpy as np
 from scipy.spatial import cKDTree
+from scipy.stats import binned_statistic_2d
+from scipy import ndimage
+from scipy.interpolate import griddata
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -607,7 +610,7 @@ class TopographyProcessor:
     def unroll_topography(self, points: np.ndarray) -> np.ndarray:
         _x0, _y0, _r0, _z_min, _z_max = fit_cylinder(points)
         unrolled = unwrap_cylinder(points, _x0, _y0, _r0)
-        return unrolled - unrolled.mean(axis=0)
+        return unrolled - unrolled.mean(axis=0), _x0, _y0, _r0
 
 
     def unroll_topography_slices(self, points: np.ndarray, breaks: np.ndarray = None) -> np.ndarray:
@@ -617,7 +620,86 @@ class TopographyProcessor:
         unrolled = np.vstack([unwrap_cylinder(zs, x0, y0, ro) for zs, x0, y0, ro in
                               zip(_z_slice, _x0, _y0, _r0)])
 
-        return unrolled - unrolled.mean(axis=0)
+        return unrolled - unrolled.mean(axis=0), _x0, _y0, _r0
+
+
+    def crop(self, points: np.ndarray, axis: int,
+             edges: List[float] = [-np.inf, np.inf]):
+        lower, upper = edges
+        mask = (points[:, axis] >= lower) & (points[:, axis] <= upper)
+        return points[mask]
+
+
+    def rasterize_bin(self, points: np.ndarray, pixel_size: float,
+                  statistic: str = "mean", fill=True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Rasterize a 3D point cloud onto a 2D grid using scipy binned statistics.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            Array of shape (N, 3) containing x, y, z coordinates.
+        pixel_size : float
+            Grid pixel size in the same units as x and y.
+        statistic : str, default="mean"
+            Statistic to compute per pixel (e.g. 'mean', 'max', 'min', 'count', 'median').
+
+        Returns
+        -------
+        raster : np.ndarray
+            Raster grid of shape (ny, nx).
+        x_edges : np.ndarray
+            Bin edges along x.
+        y_edges : np.ndarray
+            Bin edges along y.
+        """
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+
+        xmin, xmax = x.min(), x.max()
+        ymin, ymax = y.min(), y.max()
+
+        nx = int(np.ceil((xmax - xmin) / pixel_size))
+        ny = int(np.ceil((ymax - ymin) / pixel_size))
+
+        raster, x_edges, y_edges, _ = binned_statistic_2d(x, y, z,
+                                                          statistic=statistic,
+                                                          bins=[nx, ny],
+                                                          range=[[xmin, xmax], [ymin, ymax]])
+
+        raster = raster.T
+        if fill:
+            mask = np.isnan(raster)
+            if np.any(mask):
+                # Nearest-neighbour fill
+                idx = ndimage.distance_transform_edt(
+                    mask,
+                    return_distances=False,
+                    return_indices=True
+                )
+                raster = raster[tuple(idx)]
+
+        return raster, x_edges, y_edges
+
+
+    def rasterize_grid(self, points: np.ndarray,
+                       pixel_size: float, method: str = "linear"):
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+
+        xmin, xmax = x.min(), x.max()
+        ymin, ymax = y.min(), y.max()
+
+        xi = np.arange(xmin, xmax, pixel_size)
+        yi = np.arange(ymin, ymax, pixel_size)
+
+        X, Y = np.meshgrid(xi, yi)
+
+        Z = griddata((x, y), z, (X, Y), method=method)
+
+        return Z, xi, yi
 
 
     def partition(self, points: np.ndarray,
@@ -676,14 +758,59 @@ class RoughnessProcessor(TopographyProcessor):
 
     def unroll(self):
         points = self.h5.read("/roughness/points")
-        unrolled = self.unroll_topography(points)
+        unrolled, _x0, _y0, _r0 = self.unroll_topography(points)
         self.h5.write("/roughness/unroll/points", unrolled)
+        self.h5.write("/roughness/unroll/x_c", _x0)
+        self.h5.write("/roughness/unroll/y_c", _y0)
+        self.h5.write("/roughness/unroll/radius", _r0)
 
 
     def unroll_slices(self, breaks: np.ndarray = None):
         points = self.h5.read("/roughness/points")
-        unrolled = self.unroll_topography_slices(points, breaks)
+        unrolled, _x0, _y0, _r0 = self.unroll_topography_slices(points, breaks)
         self.h5.write("/roughness/unroll/points", unrolled)
+        self.h5.write("/roughness/unroll/x_c", _x0)
+        self.h5.write("/roughness/unroll/y_c", _y0)
+        self.h5.write("/roughness/unroll/radius", _r0)
+        self.h5.write("/roughness/unroll/breaks", breaks)
+
+
+    def crop(self, path, axis, edges = [-np.inf, np.inf]):
+        points = self.h5.read(path)
+
+        cropped = super().crop(points, axis, edges)
+        self.h5.write(path, cropped)
+        try:
+            ax: np.ndarray = self.h5.read("/roughness/cropped/axis")
+            ed: np.ndarray = self.h5.read("/roughness/cropped/edges")
+            self.h5.write("/roughness/cropped/axis", [*ax, axis])
+            self.h5.write("/roughness/cropped/edges", [*ed, *edges])
+        except:
+            self.h5.write("/roughness/cropped/axis", [axis])
+            self.h5.write("/roughness/cropped/edges", edges)
+
+
+    def rasterize_bin(self, path, pixel_size, statistic = "mean", fill=True):
+        points = self.h5.read(path)
+        raster, _, _ = super().rasterize_bin(points, pixel_size, statistic, fill)
+        self.h5.write("/roughness/raster/points", raster)
+        self.h5.write("/roughness/raster/shape", raster.shape)
+        self.h5.write("/roughness/raster/pixel_size", pixel_size)
+        self.h5.write("/roughness/raster/statistic", statistic)
+        self.h5.write("/roughness/raster/type", "bin")
+        self.h5.write("/roughness/raster/fill", int(fill))
+        return raster
+
+
+    def rasterize_grid(self, path, pixel_size, method = "linear"):
+        points = self.h5.read(path)
+        raster, _, _ = super().rasterize_grid(points, pixel_size, method)
+        self.h5.write("/roughness/raster/points", raster)
+        self.h5.write("/roughness/raster/shape", raster.shape)
+        self.h5.write("/roughness/raster/pixel_size", pixel_size)
+        self.h5.write("/roughness/raster/method", method)
+        self.h5.write("/roughness/raster/type", "grid")
+        return raster
 
 
     def partition(self, path,

@@ -391,7 +391,7 @@ class ArrayToVTK:
         grid = pv.UnstructuredGrid(cells,
                                    np.full(N, pv.CellType.HEXAHEDRON),
                                    points)
-        
+
         return grid
 
 
@@ -439,7 +439,7 @@ class SegmentedH5FileToVTK(ArrayToVTK):
         """
         voxels = self.h5.read(f"{self.h5._surface}/voxels")
         return self.large_array_to_cubes(voxels, samples=samples)
-    
+
 
     def pore_voxels_to_vtu(self, add_fields: bool = True) -> pv.UnstructuredGrid:
         """
@@ -463,7 +463,7 @@ class SegmentedH5FileToVTK(ArrayToVTK):
         """
         voxels = self.h5.read(f"{self.h5._pores}/voxels")
         grid = self.large_array_to_cubes(voxels)
-        
+
         if add_fields:
             counts = np.diff(self.h5.read(f"{self.h5._pores}/voxels_offsets"))
             for name in self.h5.list_datasets(self.h5._pores):
@@ -481,6 +481,23 @@ class SegmentedH5FileToVTK(ArrayToVTK):
                     grid.cell_data[name] = voxel_data
 
         return grid
+
+
+import surfalize
+class PluxToH5File:
+    """Uses surfalize package."""
+
+    def __init__(self, h5: H5File, surface: surfalize.Surface):
+        self.h5 = h5
+        self.surface = surface
+
+
+    def write_surface(self):
+        self.h5.write("/roughness/raster/surface", self.surface.data)
+        self.h5.write("/roughness/raster/pix_x", self.surface.step_x)
+        self.h5.write("/roughness/raster/pix_y", self.surface.step_y)
+
+        print("Pixel size along x- and y-axis", self.surface.step_x, self.surface.step_x)
 
 
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
