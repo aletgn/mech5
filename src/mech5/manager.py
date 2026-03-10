@@ -551,20 +551,55 @@ class SegmentedDatasetH5File(H5File):
 
 
 class RoughnessDatasetH5File(H5File):
+    """
+    HDF5 handler for roughness datasets, storing points, partitions, and metadata.
+    """
 
-    def __init__(self, filename, mode, overwrite = False):
+    def __init__(self, filename: str, mode: str, overwrite: bool=False) -> None:
+        """
+        Initialise the HDF5 file handler for roughness datasets.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the HDF5 file.
+        mode : str
+            File mode (e.g., 'r', 'w', 'a').
+        overwrite : bool, optional
+            Whether to overwrite existing file, by default False
+        """
         super().__init__(filename, mode, overwrite)
         self.root = "roughness"
         self._points = f"{self.root}/points"
 
 
-    def load_points(self, array):
+    def load_points(self, array: np.ndarray) -> None:
+        """
+        Store the point array in HDF5, saving both original and working copies.
+
+        Parameters
+        ----------
+        array : np.ndarray
+            2D array of points (num_points x dimensions).
+        """
         self.write(f"{self._points}_original", array)
         self.write(f"{self._points}", array)
         self.write(f"{self.root}/numerosity", array.shape[0])
 
 
-    def write_units(self, original: str, target: str, scale: float):
+    def write_units(self, original: str, target: str, scale: float) -> None:
+        """
+        Scale the stored points to a target unit system and save the unit metadata.
+
+        Parameters
+        ----------
+        original : str
+            Original units of the stored points.
+        target : str
+            Target units after scaling.
+        scale : float
+            Multiplicative scale factor to convert points from original to target units.
+        """
         points = points = self.read(f"{self._points}")
         self.write(f"{self.root}/common/units_original", original)
         self.write(f"{self.root}/common/units", target)
@@ -572,14 +607,21 @@ class RoughnessDatasetH5File(H5File):
         self.write(f"{self._points}", points*scale)
 
 
-    def set_edges_centroid(self):
+    def set_edges_centroid(self) -> None:
+        """
+        Compute and store the min, max, and centroid of the current point set.
+        """
         points = self.read(f"{self._points}")
         self.write(f"{self.root}/min", points.min(axis=0))
         self.write(f"{self.root}/max", points.max(axis=0))
         self.write(f"{self.root}/centroid", points.mean(axis=0))
 
 
-    def to_centroid(self):
+    def to_centroid(self) -> None:
+        """
+        Shift all points so that their centroid is at the origin and update min, max, centroid.
+        """
+        ...
         p = self.read(f"{self._points}")
         c = p.mean(axis=0)
         print(c)
@@ -587,7 +629,54 @@ class RoughnessDatasetH5File(H5File):
         self.set_edges_centroid()
 
 
+    def query_raster_partition(self, ID: int):
+        """
+        Retrieve a flattened raster partition by its ID and reshape it to original block shape.
+
+        Parameters
+        ----------
+        ID : int
+            Partition identifier.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+            - 'ID': partition ID
+            - 'points': 2D array of the partition with its original shape
+        """
+        ids = self.read("/roughness/partitions" + "/ID")
+        offsets = self.read("/roughness/partitions/offsets")
+        points = self.read("/roughness/partitions/points")
+        shapes = self.read("/roughness/partitions/shapes")
+
+        loc = np.where(ids == ID)[0].squeeze()
+        start = offsets[loc]
+        end = offsets[loc + 1]
+        partition = points[start: end]
+        shape = (shapes[2*loc], shapes[2*loc + 1])
+
+        return {"ID": ID,
+                "points": partition.reshape(shape)}
+
+
     def query_partition(self, ID: int):
+        """
+        Retrieve a partition by its ID with spatial cell bounds from stored x/y edges.
+
+        Parameters
+        ----------
+        ID : int
+            Partition identifier.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+            - 'ID': partition ID
+            - 'cell_bounds': [[x_min, x_max], [y_min, y_max]] for the partition
+            - 'points': 1D array of the flattened partition
+        """
         ids = self.read("/roughness/partitions" + "/ID")
         offsets = self.read("/roughness/partitions/offsets")
         points = self.read("/roughness/partitions/points")

@@ -784,6 +784,58 @@ class TopographyProcessor:
         return Z, xi, yi
 
 
+    def partition_raster(self, points: np.ndarray,
+                     x_splits: int, y_splits: int,
+                     x_shift: int = 0, y_shift: int = 0,
+                     x_exclude: int = 0, y_exclude: int = 0):
+        """
+        Partition a 2D raster into contiguous blocks with optional start shift
+        and right/bottom exclusion margins.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            2D array of shape (M, N) representing the raster.
+        x_splits : int
+            Number of column blocks.
+        y_splits : int
+            Number of row blocks.
+        x_shift : int
+            Starting column index for the first block.
+        y_shift : int
+            Starting row index for the first block.
+        x_exclude : int
+            Number of columns to exclude from the right edge.
+        y_exclude : int
+            Number of rows to exclude from the bottom edge.
+
+        Returns
+        -------
+        blocks : List[np.ndarray]
+            List of 2D blocks.
+        col_edges : np.ndarray
+            Column split edges.
+        row_edges : np.ndarray
+            Row split edges.
+        """
+        M, N = points.shape
+
+        x_end = N - x_exclude
+        y_end = M - y_exclude
+
+        row_edges = np.linspace(y_shift, y_end, y_splits + 1, dtype=int)
+        col_edges = np.linspace(x_shift, x_end, x_splits + 1, dtype=int)
+
+        blocks = []
+        for i in range(len(row_edges) - 1):
+            for j in range(len(col_edges) - 1):
+                block = points[row_edges[i]:row_edges[i+1],
+                            col_edges[j]:col_edges[j+1]]
+                blocks.append(block)
+
+        return blocks
+
+
     def partition(self, points: np.ndarray,
                   x_edges: np.ndarray=None,
                   y_edges: np.ndarray=None,
@@ -922,7 +974,8 @@ class RoughnessProcessor(TopographyProcessor):
         raster, _, _ = super().rasterize_bin(points, pixel_size, statistic, fill)
         self.h5.write("/roughness/raster/points", raster)
         self.h5.write("/roughness/raster/shape", raster.shape)
-        self.h5.write("/roughness/raster/pixel_size", pixel_size)
+        self.h5.write("/roughness/raster/pix_x", pixel_size)
+        self.h5.write("/roughness/raster/pix_y", pixel_size)
         self.h5.write("/roughness/raster/statistic", statistic)
         self.h5.write("/roughness/raster/type", "bin")
         self.h5.write("/roughness/raster/fill", int(fill))
@@ -930,14 +983,76 @@ class RoughnessProcessor(TopographyProcessor):
 
 
     def rasterize_grid(self, path: str, pixel_size: float, method: str="linear") -> np.ndarray:
+        """
+        Rasterize point data from an HDF5 path onto a regular grid and store the result.
+
+        Parameters
+        ----------
+        path : str
+            HDF5 path to the point data to rasterize.
+        pixel_size : float
+            Size of each grid pixel in the same units as the points.
+        method : str, optional
+            Interpolation method for rasterization, by default "linear".
+
+        Returns
+        -------
+        np.ndarray
+            2D array representing the rasterized grid.
+        """
         points = self.h5.read(path)
         raster, _, _ = super().rasterize_grid(points, pixel_size, method)
         self.h5.write("/roughness/raster/points", raster)
         self.h5.write("/roughness/raster/shape", raster.shape)
-        self.h5.write("/roughness/raster/pixel_size", pixel_size)
+        self.h5.write("/roughness/raster/pix_x", pixel_size)
+        self.h5.write("/roughness/raster/pix_y", pixel_size)
         self.h5.write("/roughness/raster/method", method)
         self.h5.write("/roughness/raster/type", "grid")
         return raster
+
+
+    def partition_raster(self, path: str,
+                         x_splits: int, y_splits: int,
+                         x_shift: int = 0, y_shift: int = 0,
+                         x_exclude: int = 0, y_exclude: int = 0) -> np.array:
+        """
+        Partition a raster stored in HDF5 into contiguous blocks and store them.
+
+        Parameters
+        ----------
+        path : str
+            HDF5 path to the 2D raster array to partition.
+        x_splits : int
+            Number of blocks along the horizontal (columns).
+        y_splits : int
+            Number of blocks along the vertical (rows).
+        x_shift : int, optional
+            Number of columns to skip at the start, by default 0.
+        y_shift : int, optional
+            Number of rows to skip at the start, by default 0.
+        x_exclude : int, optional
+            Number of columns to exclude at the right edge, by default 0.
+        y_exclude : int, optional
+            Number of rows to exclude at the bottom edge, by default 0.
+
+        Returns
+        -------
+        None
+        """
+        points = self.h5.read(path)
+        raster = super().partition_raster(points, x_splits, y_splits, x_shift, y_shift, x_exclude, y_exclude)
+
+        rasters = np.hstack([r.flatten() for r in raster])
+        shapes = np.asarray([dim for r in raster for dim in r.shape])
+        lengths = np.array([r.size for r in raster], dtype=int)
+        offsets = np.zeros(len(lengths) + 1, dtype=int)
+        offsets[1:] = np.cumsum(lengths)
+
+        self.h5.write("/roughness/partitions/ID", list(range(len(raster))))
+        self.h5.write("/roughness/partitions/points", rasters)
+        self.h5.write("/roughness/partitions/shapes", shapes)
+        self.h5.write("/roughness/partitions/lengths", lengths)
+        self.h5.write("/roughness/partitions/offsets", offsets)
 
 
     def partition(self, path,
