@@ -236,26 +236,38 @@ class H5PlotRoughness(H5Plot):
             plt.show()
 
 
-    def inspect_partition(self, path: str, ID: str = None, three: bool = False, samples: int = 1000):
+    def inspect_partition(self, path: str, ID: str = None,
+                          three: bool = False, samples: int = 1000):
 
         points = []
 
         for h in self.h5:
             if ID is None:
                 for II in h.read("roughness/partitions/ID"):
-                    points.append(h.query_partition(II)["points"])
+                    points.append(h.query_raster_partition(II)["points"])
             else:
-                points.append(h.query_partition(ID)["points"])
+                points.append(h.query_raster_partition(ID)["points"])
 
+        n = len(points)
         if not three:
-            fig, ax = plt.subplots(dpi=self.dpi)
-            for p in points:
-                n = min(samples, len(p))
-                idx = np.random.choice(len(p), size=n, replace=False)
-                p_sample = p[idx]
-                ax.scatter(p_sample[:, 0], p_sample[:, 1],
-                           edgecolors=self.edgecolor,
-                           s=self.point_scale)
+            
+            fig, axes = plt.subplots(1, max(n, 1), figsize=(4*n, 4), dpi=self.dpi)
+            if n == 1:
+                axes = np.array([axes])
+            for i, ax in enumerate(axes):
+                if i < n:
+                    p = points[i]
+                    n = min(samples, len(p))
+                    idx = np.random.choice(len(p), size=n, replace=False)
+                    im = ax.imshow(p)
+                    ax.axis(self.axis)
+                    ax.set_xlabel(self.x_label)
+                    ax.set_ylabel(self.y_label)
+                    ax.set_xlim(self.x_lim)
+                    ax.set_ylim(self.y_lim)
+                    ax.set_title(f"Raster {i}")
+                else:
+                    ax.axis('off')
             ax.axis(self.axis)
             ax.set_xlabel(self.x_label)
             ax.set_ylabel(self.y_label)
@@ -263,14 +275,21 @@ class H5PlotRoughness(H5Plot):
             ax.set_ylim(self.y_lim)
 
         else:
-            fig = plt.figure(dpi=self.dpi)
-            ax = fig.add_subplot(projection="3d")
-            for p in points:
-                n = min(samples, len(p))
-                idx = np.random.choice(len(p), size=n, replace=False)
-                p_sample = p[idx]
-                ax.scatter(p_sample[:, 0], p_sample[:, 1], p_sample[:, 2],
-                           edgecolors=self.edgecolor)
+            fig, axes = plt.subplots(1, max(n, 1), figsize=(4*n, 4), subplot_kw={'projection': '3d'} if n > 0 else None)
+            if n == 1:
+                axes = np.array([axes])
+            for i in range(len(axes)):
+                ax = axes[i]
+                if i < n:
+                    arr = points[i]
+                    ny, nx = arr.shape
+                    x = np.arange(nx)
+                    y = np.arange(ny)
+                    X, Y = np.meshgrid(x, y)
+                    surf = ax.plot_surface(X, Y, arr, cmap=self.cmap, linewidth=0, antialiased=True)
+                    ax.set_title(f"Raster {i}")
+                else:
+                    ax.axis('off')
 
             ax.axis(self.axis)
             ax.set_xlabel(self.x_label)

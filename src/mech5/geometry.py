@@ -1090,30 +1090,95 @@ class RoughnessProcessor(TopographyProcessor):
 
     def aeral_roughness(self, ID: int,
                         cutoff: float, cutoff2: float = None, level: bool = True):
-        
+
         raster = self.h5.query_raster_partition(ID)["points"]
         pix_x = self.h5.read("/roughness/raster/pix_x")
         pix_y = self.h5.read("/roughness/raster/pix_y")
 
         surface = Surface(raster, step_x=pix_x, step_y=pix_y)
-        
+
         if level:
             surface.level(inplace=True)
 
         surface.filter("bandpass", cutoff, cutoff2, inplace=True)
         return surface.roughness_parameters(self.parameters)
-    
+
 
     def all_aeral_roughness(self, cutoff: float, cutoff2: float = None, level: bool = True):
         ids = self.h5.read("/roughness/partitions/ID")
         dicts = []
         for i in ids:
             dicts.append(self.aeral_roughness(i, cutoff, cutoff2, level))
-        
+
         concatenated = {k: [d[k] for d in dicts] for k in self.parameters}
         root = "/roughness/partitions"
         for k in concatenated.keys():
             self.h5.write(f"{root}/{k}", concatenated[k])
+
+
+    def areal_roughness_custom(self, filter_class, ID,
+                               S_cutoff, L_cutoff, L_c=1,
+                               transpose=False, level=True,
+                               edge=True, crop=False):
+        raster = self.h5.query_raster_partition(ID)["points"]
+
+        if transpose:
+            raster = raster.T
+
+        pix_x = self.h5.read("/roughness/raster/pix_x")
+        pix_y = self.h5.read("/roughness/raster/pix_y")
+
+        surface = Surface(raster, step_x=pix_x, step_y=pix_y)
+
+        if level:
+            surface.level(inplace=True)
+
+        S_filter = filter_class(raster, pix_x, S_cutoff, L_c, transpose)
+        L_filter = filter_class(raster, pix_y, L_cutoff, L_c, transpose)
+
+        if edge:
+            S_filter.edge()
+            L_filter.edge()
+
+        S_filtered = S_filter.convolve()
+        L_filtered = L_filter.convolve()
+        B_filtered = S_filtered - L_filtered
+
+        # load this to possibly crop later the image
+        B_filter = filter_class(B_filtered, pix_x, L_cutoff, L_c, transpose)
+
+        if crop:
+            raster_filtered = B_filter.crop("image")
+        else:
+            raster_filtered = B_filter.image
+
+        surface = Surface(raster_filtered, step_x=pix_x, step_y=pix_y)
+        return surface.roughness_parameters(self.parameters), S_filtered, L_filtered, raster_filtered
+
+
+    def all_aeral_roughness_custom(self, filter_class,
+                                   S_cutoff, L_cutoff, L_c=1,
+                                   transpose=False, level=True,
+                                   edge=True, crop=False):
+        ids = self.h5.read("/roughness/partitions/ID")
+        dicts = []
+        for i in ids:
+            pars, _, _, _ = self.areal_roughness_custom(filter_class, i,
+                                                         S_cutoff, L_cutoff, L_c, transpose,
+                                                         level, edge, crop)
+            dicts.append(pars)
+
+        concatenated = {k: [d[k] for d in dicts] for k in self.parameters}
+        root = "/roughness/partitions"
+        for k in concatenated.keys():
+            self.h5.write(f"{root}/{k}", concatenated[k])
+        self.h5.write(f"{root}/S_cutoff", S_cutoff)
+        self.h5.write(f"{root}/L_cutoff", L_cutoff)
+        self.h5.write(f"{root}/L_c", L_c)
+        self.h5.write(f"{root}/level", int(level))
+        self.h5.write(f"{root}/edge", int(edge))
+        self.h5.write(f"{root}/crop", int(crop))
+
 
     def to_txt(self, dataset, path, delimiter):
         points = self.h5.read(dataset)
