@@ -91,7 +91,7 @@ def unwrap_cylinder(points: np.ndarray, x0: float=0., y0: float=0., r0: float=0.
     theta = np.arctan2(points[:, 1], points[:, 0])
     r = np.sqrt(points[:, 0]**2 + points[:, 1]**2)
 
-    u = theta * r # arc length
+    u = theta * r0 # arc length
     v = points[:, 2] # axis
     w = r - r0 # altitude
 

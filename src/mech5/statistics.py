@@ -68,6 +68,7 @@ class ExtremeValueStatistic:
         self.x_mom = self.mu_mom + self.sigma_mom * self.ln_F
 
         # Solution
+        self.mu_ml = None
         self.sigma_ml = None
 
         # Confidence interval - parameters
@@ -77,6 +78,8 @@ class ExtremeValueStatistic:
         self.var_sigma = None
         self.std_sigma = None
         self.cov_mu_sigma = None
+
+        self.name = "Parameters unavailable"
 
 
     @staticmethod
@@ -116,7 +119,7 @@ class ExtremeValueStatistic:
         Compute variance and covariance estimates for the maximum likelihood
         parameters, required for confidence intervals.
         """
-        
+
         gamma = -psi(1) # Euler Mascheroni constant
         if self.sigma_ml is None:
             raise ValueError("Must run MLE")
@@ -155,6 +158,8 @@ class ExtremeValueStatistic:
         self.mu_ml = - self.sigma_ml* np.log((np.sum(np.exp(-self.x / self.sigma_ml) ) / self.N ) );
 
         print(f"MLE estimate: {self.sigma_ml}")
+        self.confidence()
+        self.name = fr"$y = {self.mu_ml:.2f} + {self.sigma_ml:.2f}(-\ln(-\ln(F)))$"
         return self.mu_ml, self.sigma_ml
 
 
@@ -240,6 +245,10 @@ class ExtremeValueStatistic:
 
         plt.legend(loc="best")
         plt.show()
+
+
+    def __repr__(self):
+        return self.name
 
 
 if __name__ == "__main__":
