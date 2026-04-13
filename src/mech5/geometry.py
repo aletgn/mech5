@@ -690,6 +690,17 @@ class TopographyProcessor:
         return points[mask]
 
 
+    def crop_square(self, points: np.ndarray) -> np.ndarray:
+        """Works on raster only."""
+        N, M = points.shape
+        L = min(N, M)
+
+        start_row = (N - L) // 2
+        start_col = (M - L) // 2
+
+        return points[start_row:start_row + L, start_col:start_col + L]
+
+
     def rasterize_bin(self, points: np.ndarray, pixel_size: float,
                   statistic: str = "mean", fill=True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -880,6 +891,50 @@ class TopographyProcessor:
         return partitions, x_edges, y_edges
 
 
+    def partition_squares(self, points, k, show=False):
+        N, M = points.shape
+        if N != M:
+            raise ValueError("Matrix must be square")
+
+        if k <= 0:
+            raise ValueError("k must be positive")
+
+        # Number of blocks per dimension
+        n = N // k
+        if n == 0:
+            raise ValueError("k is larger than matrix size")
+
+        # Largest usable centred square
+        L = n * k
+        s = (N - L) // 2
+
+        A_center = points[s:s + L, s:s + L]
+        blocks = A_center.reshape(n, k, n, k).swapaxes(1, 2)
+        block_list = list(blocks.reshape(-1, k, k))
+
+        x_edges = s + np.arange(n + 1) * k
+        y_edges = s + np.arange(n + 1) * k
+
+        if show:
+            fig, ax = plt.subplots()
+
+            im = ax.imshow(points)
+            plt.colorbar(im, ax=ax)
+
+            # grid lines (explicit overlay)
+            for x in x_edges:
+                ax.axvline(x, color="white", linewidth=1)
+            for y in y_edges:
+                ax.axhline(y, color="white", linewidth=1)
+
+            ax.set_title("Centred Block Partition")
+            ax.set_aspect("equal")
+
+            plt.show()
+
+        return block_list, x_edges, y_edges
+
+
     def to_txt(self, points: np.ndarray, path, delimiter):
         np.savetxt(path, points[: 1000], delimiter=delimiter)
 
@@ -952,6 +1007,13 @@ class RoughnessProcessor(TopographyProcessor):
         except:
             self.h5.write("/roughness/cropped/axis", [axis])
             self.h5.write("/roughness/cropped/edges", edges)
+
+
+    def crop_square(self, path: str):
+        points = self.h5.read(path)
+        cropped_square =  super().crop_square(points)
+        assert cropped_square.shape[0] == cropped_square.shape[1]
+        self.h5.write("/roughness/raster/cropped", cropped_square)
 
 
     def rasterize_bin(self, path: str, pixel_size: float, statistic: str = "mean",
@@ -1072,7 +1134,7 @@ class RoughnessProcessor(TopographyProcessor):
         except:
             print("Partitions not found.")
 
-        partitions, x_edges, y_edges, = super().partition(points,
+        partitions, x_edges, y_edges = super().partition(points,
                                                           x_edges, y_edges,
                                                           x_steps, y_steps)
         lengths = [pp.shape[0] for pp in partitions]
@@ -1085,6 +1147,31 @@ class RoughnessProcessor(TopographyProcessor):
         self.h5.write("/roughness/partitions/x_bins", x_steps)
         self.h5.write("/roughness/partitions/y_bins", y_steps)
         self.h5.write("/roughness/partitions/points", np.vstack(partitions))
+        self.h5.write("/roughness/partitions/offsets", offsets)
+
+
+    def partition_squares(self, path, k, show=False):
+        points = self.h5.read(path)
+        raster_list, x_edges, y_edges = super().partition_squares(points, k, show)
+        
+        rasters = np.hstack([r.flatten() for r in raster_list])
+        shapes = np.asarray([dim for r in raster_list for dim in r.shape])
+        lengths = np.array([r.size for r in raster_list], dtype=int)
+        offsets = np.zeros(len(lengths) + 1, dtype=int)
+        offsets[1:] = np.cumsum(lengths)
+
+        try:
+            self.h5.delete("/roughness/partitions/")
+            print("Partitions deleted.")
+        except:
+            print("Partitions not found.")
+
+        self.h5.write("/roughness/partitions/ID", list(range(0, len(raster_list))))
+        self.h5.write("/roughness/partitions/x_edges", x_edges)
+        self.h5.write("/roughness/partitions/y_edges", y_edges)
+        self.h5.write("/roughness/partitions/shapes", shapes)
+        self.h5.write("/roughness/partitions/lengths", lengths)
+        self.h5.write("/roughness/partitions/points", np.vstack(rasters))
         self.h5.write("/roughness/partitions/offsets", offsets)
 
 
@@ -1156,7 +1243,7 @@ class RoughnessProcessor(TopographyProcessor):
         return surface.roughness_parameters(self.parameters), S_filtered, L_filtered, raster_filtered
 
 
-    def all_aeral_roughness_custom(self, filter_class,
+    def all_areal_roughness_custom(self, filter_class,
                                    S_cutoff, L_cutoff, L_c=1,
                                    transpose=False, level=True,
                                    edge=True, crop=False):
