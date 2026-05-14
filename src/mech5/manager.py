@@ -7,6 +7,7 @@ import h5py
 from typing import Optional, Any, List, Dict, Tuple, Union
 
 import numpy as np
+from skimage.morphology import remove_small_holes
 
 from mech5.util import utc, Mask, Criterion, TrueMask
 
@@ -698,6 +699,122 @@ class RoughnessDatasetH5File(H5File):
                 "cell_bounds": cell_bounds,
                 "points": partition}
 
+
+class DarkFieldXrayMicroscopyH5File(H5File):
+
+    def __init__(self, filename, mode, overwrite = False):
+        super().__init__(filename, mode, overwrite)
+
+
+    def write_number_layers(self, L):
+        self.write("/dfxm/common/layers", L)
+
+
+    def write_layer(self, h5_path, dataset_in, dataset_out):
+        h5 = H5File(h5_path, "r")
+        with h5 as h:
+            self.write(dataset_out, h.read(dataset_in))
+
+
+    def write_concatenated_layers(self, h5_list, dataset_in, dataset_out, transpose=None):
+        merged = []
+
+        for f in h5_list:
+            h5 = H5File(f, "r")
+            h5.open()
+            merged.append(h5.read(dataset_in))
+            h5.inspect()
+            h5.close()
+        merged = np.asarray(merged)
+
+        if transpose is not None:
+            merged = merged.transpose(transpose)
+        print(merged.shape)
+
+        self.write(dataset_out, merged)
+
+
+    def check_unique(self, dataset_in, dataset_out):
+        arr = self.read(dataset_in)
+        if np.all(arr == arr[0]):
+            print("Identical rows. Keeping first.")
+            arr = arr[0]
+            self.write(dataset_out, arr)
+
+
+    def orientation_mesh(self):
+        chi = self.read("/dfxm/processed/ori_chi")
+        phi = self.read("/dfxm/processed/ori_phi")
+        CHI, PHI = np.meshgrid(chi, phi)
+        print(self.read("/dfxm/processed/ori_dist").shape)
+        print(CHI.shape)
+
+        self.write("/dfxm/processed/mesh_chi", CHI)
+        self.write("/dfxm/processed/mesh_phi", PHI)
+
+
+    def write_mask(self):
+        com_phi = self.read("/dfxm/raw/com_phi")
+        com_chi = self.read("/dfxm/raw/com_chi")
+        mosaicity = self.read("/dfxm/raw/mosaicity")
+
+        phi_mask = np.isnan(com_phi)
+        chi_mask = np.isnan(com_chi)
+        mosa_mask = np.isclose(mosaicity, 0., atol=1e-12)
+        assert np.array_equal(phi_mask, chi_mask)
+
+        self.write("/dfxm/mask/com_phi", phi_mask)
+        self.write("/dfxm/mask/com_chi", chi_mask)
+        self.write("/dfxm/mask/mosaicity", mosa_mask)
+
+
+    def mask_layer(self, dataset_path: str, mask_path: str, layer: int, min_size_to_close=None):
+        data = self.read(dataset_path)[layer]
+        mask = self.read(mask_path)[layer]
+        closed_mask = ~remove_small_holes(mask, min_size_to_close)
+        masked_data = np.where(closed_mask, data, np.nan)
+        return masked_data, closed_mask
+
+
+    def mask_all_layers(self, dataset_path, mask_path, dataset_out, list_min_size_to_close=None):
+        masked_data = []
+        masks = []
+        layers = range(self.read("/dfxm/common/layers"))
+        assert len(list_min_size_to_close) == len(layers)
+
+        for l, s in zip(layers, list_min_size_to_close):
+            print(f"Masking {l}th layer of {dataset_path}")
+            mdata, _ = self.mask_layer(dataset_path, mask_path, l, s)
+            masked_data.append(mdata)
+
+        masked_data = np.asarray(masked_data)
+        self.write(dataset_out, masked_data)
+
+
+    def write_misorientation():
+        ...
+
+
+    def write_gnd():
+        ...
+
+
+    def query_layer(self, layer):
+        com_phi = self.read("/dfxm/processed/com_phi")[layer]
+        com_chi = self.read("/dfxm/processed/com_chi")[layer]
+        mosaicity = self.read("/dfxm/processed/mosaicity")[layer]
+
+        ori_dist = self.read("/dfxm/processed/ori_dist")[layer]
+        mesh_phi = self.read("/dfxm/processed/mesh_phi")[layer]
+        mesh_chi = self.read("/dfxm/processed/mesh_chi")[layer]
+
+        mask_phi = self.read("/dfxm/mask/com_phi")[layer]
+        mask_chi = self.read("/dfxm/mask/com_chi")[layer]
+        mask_mos = self.read("/dfxm/mask/mosaicity")[layer]
+
+        return {"com_phi": com_phi, "com_chi": com_chi, "mosaicity": mosaicity,
+                "mesh_phi": mesh_phi, "mesh_chi": mesh_chi, "ori_dist": ori_dist,
+                "mask_phi": mask_phi, "mask_chi": mask_chi, "mask_mosaicity": mask_mos[:, :, -1]}
 
 
 TEST_FILE =  "./testh5.h5"
