@@ -710,6 +710,11 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         self.write("/dfxm/common/layers", L)
 
 
+    def write_pixel_size(self, pix_x: int=1, pix_y: int=1):
+        self.write("/dfxm/common/pixel_size_x", pix_x)
+        self.write("/dfxm/common/pixel_size_y", pix_y)
+
+
     def write_layer(self, h5_path, dataset_in, dataset_out):
         h5 = H5File(h5_path, "r")
         with h5 as h:
@@ -746,11 +751,24 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         chi = self.read("/dfxm/processed/ori_chi")
         phi = self.read("/dfxm/processed/ori_phi")
         CHI, PHI = np.meshgrid(chi, phi)
-        print(self.read("/dfxm/processed/ori_dist").shape)
+        print(self.read("/dfxm/raw/ori_dist").shape)
         print(CHI.shape)
 
         self.write("/dfxm/processed/mesh_chi", CHI)
         self.write("/dfxm/processed/mesh_phi", PHI)
+
+
+    def write_log_orientation_distribution(self, fn: callable=np.log10):
+        N = self.read("/dfxm/raw/ori_dist")
+
+        N = np.where(N == 0, np.nan, N)
+        N_valid = N[~np.isnan(N)]
+        N_clipped = np.clip(N, np.percentile(N_valid, 2), np.percentile(N_valid, 98))
+
+        if fn is not None:
+            N_clipped = fn(N_clipped)
+
+        self.write("/dfxm/processed/log_ori_dist", N_clipped)
 
 
     def write_mask(self):
@@ -776,35 +794,58 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         return masked_data, closed_mask
 
 
-    def mask_all_layers(self, dataset_path, mask_path, dataset_out, list_min_size_to_close=None):
+    def mask_all_layers(self, dataset_path, mask_path, dataset_out, dataset_morph, list_min_size_to_close=None):
         masked_data = []
-        masks = []
+        closed_mask = []
         layers = range(self.read("/dfxm/common/layers"))
         assert len(list_min_size_to_close) == len(layers)
 
         for l, s in zip(layers, list_min_size_to_close):
             print(f"Masking {l}th layer of {dataset_path}")
-            mdata, _ = self.mask_layer(dataset_path, mask_path, l, s)
+            mdata, cmasks = self.mask_layer(dataset_path, mask_path, l, s)
             masked_data.append(mdata)
+            closed_mask.append(cmasks)
 
         masked_data = np.asarray(masked_data)
+        closed_mask = np.asarray(closed_mask)
         self.write(dataset_out, masked_data)
+        self.write(dataset_morph, closed_mask.astype(int))
 
 
-    def write_misorientation():
-        ...
+    def write_misorientation(self):
+        com_phi = self.read("/dfxm/processed/com_phi")
+        com_chi = self.read("/dfxm/processed/com_chi")
+
+        step_x = self.read("/dfxm/common/pixel_size_x")
+        step_y = self.read("/dfxm/common/pixel_size_y")
+
+        # compute gradient
+        phi_dx, phi_dy = np.gradient(com_phi, step_x, step_y, axis=(1, 2))
+        chi_dx, chi_dy = np.gradient(com_chi, step_x, step_y, axis=(1, 2))
+
+        # gradient module
+        self.write("/dfxm/processed/misorientation", np.sqrt(phi_dx**2 + phi_dy**2 + chi_dx**2 + chi_dy**2))
 
 
-    def write_gnd():
-        ...
+    def write_gnd(self, thk: float, b: float):
+        misorientation = self.read("/dfxm/processed/misorientation")
+        mis_rad = np.deg2rad(misorientation)
+        self.write("/dfxm/processed/gnd", mis_rad/(thk*b)/1e14)
+        self.write("/dfxm/processed/gnd_burgers", b)
+        self.write("/dfxm/processed/thickness", thk)
 
 
     def query_layer(self, layer):
+        com_phi_raw = self.read("/dfxm/raw/com_phi")[layer]
+        com_chi_raw = self.read("/dfxm/raw/com_chi")[layer]
+        mosaicity_raw = self.read("/dfxm/raw/mosaicity")[layer]
+
         com_phi = self.read("/dfxm/processed/com_phi")[layer]
         com_chi = self.read("/dfxm/processed/com_chi")[layer]
         mosaicity = self.read("/dfxm/processed/mosaicity")[layer]
 
-        ori_dist = self.read("/dfxm/processed/ori_dist")[layer]
+        ori_dist = self.read("/dfxm/raw/ori_dist")[layer]
+        log_ori_dist = self.read("/dfxm/processed/log_ori_dist")[layer]
         mesh_phi = self.read("/dfxm/processed/mesh_phi")[layer]
         mesh_chi = self.read("/dfxm/processed/mesh_chi")[layer]
 
@@ -812,9 +853,20 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         mask_chi = self.read("/dfxm/mask/com_chi")[layer]
         mask_mos = self.read("/dfxm/mask/mosaicity")[layer]
 
-        return {"com_phi": com_phi, "com_chi": com_chi, "mosaicity": mosaicity,
+        morph_phi = self.read("/dfxm/processed/morph_phi")[layer]
+        morph_chi = self.read("/dfxm/processed/morph_chi")[layer]
+        morph_mos = self.read("/dfxm/processed/morph_mosaicity")[layer]
+
+        mis = self.read("/dfxm/processed/misorientation")[layer]
+        gnd = self.read("/dfxm/processed/gnd")[layer]
+
+
+        return {"com_phi_raw": com_phi_raw, "com_chi_raw": com_chi_raw, "mosaicity_raw": mosaicity_raw,
+                "com_phi": com_phi, "com_chi": com_chi, "mosaicity": mosaicity,
                 "mesh_phi": mesh_phi, "mesh_chi": mesh_chi, "ori_dist": ori_dist,
-                "mask_phi": mask_phi, "mask_chi": mask_chi, "mask_mosaicity": mask_mos[:, :, -1]}
+                "mask_phi": mask_phi, "mask_chi": mask_chi, "mask_mosaicity": mask_mos[:, :, -1],
+                "morph_phi": morph_phi, "morph_chi": morph_chi, "morph_mos": morph_mos,
+                "misorientation": mis, "gnd": gnd}
 
 
 TEST_FILE =  "./testh5.h5"

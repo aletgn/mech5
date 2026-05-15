@@ -9,6 +9,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
+from matplotlib.colors import LogNorm
+
 
 FONT_SIZE = 14
 FONT_FAMILY = "sans-serif"
@@ -250,7 +252,7 @@ class H5PlotRoughness(H5Plot):
 
         n = len(points)
         if not three:
-            
+
             fig, axes = plt.subplots(1, max(n, 1), figsize=(4*n, 4), dpi=self.dpi)
             if n == 1:
                 axes = np.array([axes])
@@ -309,6 +311,55 @@ class H5PlotRoughness(H5Plot):
         else:
             plt.show()
 
+
+class H5PlotDarkFieldXrayMicroscopy:
+
+    def __init__(self, h5: H5File):
+        self.h5 = h5
+
+
+    def plot_layer(self, layer):
+        l = self.h5.query_layer(layer)
+        fig, ax = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True, figsize=(16,10))
+
+        a0 = ax[0, 0].imshow(l["com_phi"])
+        a1 = ax[0, 1].imshow(l["com_chi"])
+        a2 = ax[0, 2].imshow(l["mosaicity"])
+        a3 = ax[1, 0].imshow(l["misorientation"], vmax=2)
+        a4 = ax[1, 2].imshow(l["gnd"], norm=LogNorm(vmin=1e-1, vmax=10), cmap="magma")
+
+        fig.colorbar(a0, ax=ax[0, 0])
+        fig.colorbar(a1, ax=ax[0, 1])
+        fig.colorbar(a2, ax=ax[0, 2])
+        fig.colorbar(a3, ax=ax[1, 0])
+        fig.colorbar(a4, ax=ax[1, 2])
+
+        plt.tight_layout()
+        plt.show()
+
+
+    def plot_mask(self, layer):
+        l = self.h5.query_layer(layer)
+
+        fig, ax = plt.subplots(nrows=3, ncols=3, sharex=True, sharey=True, figsize=(16,10))
+        ax[0, 0].imshow(l["com_phi_raw"])
+        ax[0, 1].imshow(l["morph_phi"])
+        a0 = ax[0, 2].imshow(l["com_phi"])
+
+        ax[1, 0].imshow(l["com_chi_raw"])
+        ax[1, 1].imshow(l["morph_chi"])
+        a1 = ax[1, 2].imshow(l["com_chi"])
+
+        ax[2, 0].imshow(l["mosaicity_raw"])
+        ax[2, 1].imshow(l["morph_mos"][:, :, 2])
+        a2 = ax[2, 2].imshow(l["mosaicity"])
+
+        for i, im in enumerate([a0, a1, a2]):
+            if im is not None:
+                fig.colorbar(im, ax=ax[i, 2])
+
+        plt.tight_layout()
+        plt.show()
 
 def test_query_data():
     h5 = SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r")
