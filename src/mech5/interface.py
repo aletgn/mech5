@@ -500,6 +500,227 @@ class PluxToH5File:
         print("Pixel size along x- and y-axis", self.surface.step_x, self.surface.step_x)
 
 
+class DarkFieldXrayMicroscopyH5FileToVTK:
+    
+    def __init__(self, h5file, name: str="Untitled"):
+        self.h5 = h5file
+        self.data_n_idx = None
+        self.grid = None
+
+        self.tol = 1e-5
+        self.lower_threshold = -np.inf # Lower bound of voxel values
+        self.upper_threshold = +np.inf # Lower bound of voxel values
+        self.spacing = (1., 1., 10.) # Voxel size
+        self.slice_offset = 0
+
+        self.off_screen = False
+        self.show_edges = False
+        self.cmap = "viridis"
+        self.clim = None
+        self.scalar_bar_args = {}
+        # Example
+        # self.scalar_bar_args={"title": "Orientation",
+        #                  "vertical": True,     # vertical colorbar
+        #                  "position_x": 0,   # x-position in figure (0 left, 1 right)
+        #                  "position_y": 0,    # y-position in figure (0 bottom, 1 top)
+        #                  "height": 0.08,        # fraction of figure height
+        #                  "width": 0.8,        # fraction of figure width
+        #                  "title_font_size": 35,
+        #                  "label_font_size": 12}
+        self.rgb = False
+        self.bounds = None
+        self.show_bounds = False
+
+        # BBox properties
+        self.tick_pos = "outside"
+        self.minor_ticks = False
+        self.all_edges = True
+        self.use_2d = False
+        self.use_3d_text = True
+        self.bbox_grid = None
+        self.x_title = "X"
+        self.y_title = "Y"
+        self.z_title = "Z"
+        self.n_xlabels = 5
+        self.n_ylabels = 5
+        self.n_zlabels = 5
+        self.fmt = "%2.f"
+        self.location = "outer"
+        self.font_size = None
+        self.font_family = None
+
+        # Axis widget
+        self.show_axes = True
+
+        # Camera settings
+        self.set_camera = False
+        self.camera_position = "iso" # xy
+        self.camera_roll = 270
+        self.camera_azimuth = 360
+
+        # Centre camera -- not implemented yet
+        # center = [(bounds[0]+bounds[1])/2,
+        #   (bounds[2]+bounds[3])/2,
+        #   (bounds[4]+bounds[5])/2]
+
+        # Set camera to tightly frame the bounds
+        # pl.camera_position = [
+        #     (center[0] + 1.5*(bounds[1]-bounds[0]),
+        #      center[1] + 1.5*(bounds[3]-bounds[2]),
+        #      center[2] + 1.5*(bounds[5]-bounds[4])),  # camera location
+        #     center,  # focal point
+        #     (0, 0, 1)  # view up
+        # ]
+
+        # Screenshot parameters
+        self.trasparent = False
+        self.window_size = (800, 800)
+        self.scale = 1
+
+        # Export extension
+        # - .vti for image data (uniform grid)
+        # - .vtk for unstructured grids
+        # - .vtu for unstructured grids (XML-based format)
+        self.ext = None
+
+
+    def initialise_grid(self, dataset, transpose=(1,2,0)):
+        data = self.h5.read(dataset).transpose(transpose)
+        self.data_n_idx = len(data.shape)
+        px, py, pz = self.spacing
+        mask = ~np.isnan(data)
+        
+        self.x, self.y, self.z = np.nonzero(mask)
+        values = data[self.x, self.y, self.z]
+        n = len(values)
+
+        offsets = np.array([[0,0,0],
+                            [px,0,0],
+                            [px,py,0],
+                            [0,py,0],
+                            [0,0,pz],
+                            [px,0,pz],
+                            [px,py,pz],
+                            [0,py,pz]])
+        
+
+        points = (np.repeat(np.array([self.x*px, self.y*py, self.z*(pz+self.slice_offset)]).T, 8, axis=0) \
+                  + np.tile(offsets, (n,1))).astype(float)
+
+        # Cell indices (8 = vertices in a hexahedron)
+        cells = np.arange(n*8).reshape(n, 8)
+        cells = np.hstack([np.full((n,1),8), cells])
+
+        # Initialise grid (next line: 12 = VTK_HEXAHEDRON)
+        self.grid = pv.UnstructuredGrid(cells, np.full(n, 12), points)
+        self.ext = ".vtu"
+
+
+    def dataset2grid(self, dataset: str, transpose=(1,2,0)):
+        print(f"Add {dataset} dataset")
+        data = self.h5.read(dataset).transpose(transpose)
+        values = data[self.x, self.y, self.z]
+        self.grid.cell_data[dataset] = values
+
+
+    def make_unstructured_grid(self, dataset: np.ndarray, transpose=(1,2,0), label="Data"):
+        data = self.h5.read(dataset).transpose(transpose)
+        self.data_n_idx = len(data.shape)
+        px, py, pz = self.spacing
+
+        if self.data_n_idx == 3:
+            # Keep voxels with value above the threshold
+            print("Data without RGB")
+            # mask = data > self.lower_threshold
+            mask = ~np.isnan(data)
+
+        elif self.data_n_idx == 4:
+            # Keep voxels with value above the threshold (intensity, non-black) and
+            # exclude voxels having color 1, 1, 1, i.e. 255, 255, 255 (white)
+            # mask = (np.linalg.norm(data, axis=-1) > self.lower_threshold) & \
+            #     (~np.all(np.abs(data - self.upper_threshold) < self.tol, axis=-1))
+            mask = ~np.isnan(data).any(axis=-1)
+            print("Data with RGB")
+        else:
+            raise Exception("Non-voxel array.")
+
+        # Generate cells upon masked voxels
+        x, y, z = np.nonzero(mask)
+        values = data[x, y, z]
+        n = len(values)
+
+        # Voxel vertices
+        offsets = np.array([[0,0,0],
+                            [px,0,0],
+                            [px,py,0],
+                            [0,py,0],
+                            [0,0,pz],
+                            [px,0,pz],
+                            [px,py,pz],
+                            [0,py,pz]])
+
+        points = (np.repeat(np.array([x*px, y*py, z*(pz+self.slice_offset)]).T, 8, axis=0) \
+                  + np.tile(offsets, (n,1))).astype(float)
+
+        # Cell indices (8 = vertices in a hexahedron)
+        cells = np.arange(n*8).reshape(n, 8)
+        cells = np.hstack([np.full((n,1),8), cells])
+
+        # Initialise grid (next line: 12 = VTK_HEXAHEDRON)
+        self.grid = pv.UnstructuredGrid(cells, np.full(n, 12), points)
+
+        # Populate grid
+        if self.data_n_idx == 3:
+            self.grid.cell_data[label] = values
+        else:
+            colors = (data[x, y, z] * 255).astype(np.uint8)
+            self.grid.cell_data[label] = colors
+
+
+        self.bounds = self.grid.bounds  # (xmin, xmax, ymin, ymax, zmin, zmax)
+        self.ext = ".vtu"
+
+        # If opacity array is present, consider this
+        # opacity = np.ones_like(values)
+        # plotter.add_mesh(grid, scalars="values", opacity=opacity, cmap="viridis")
+    
+
+    def view(self):
+        self.pl = pv.Plotter(off_screen=self.off_screen)
+        self.pl.add_mesh(self.grid,
+                            show_edges=self.show_edges,
+                            cmap=self.cmap,
+                            clim=self.clim,
+                            scalar_bar_args=self.scalar_bar_args,
+                            rgb=self.rgb)
+
+        if self.show_bounds:
+            # _ = pl.add_bounding_box(line_width=1, color='black')
+            self.pl.show_bounds(ticks=self.tick_pos, minor_ticks=self.minor_ticks,
+                                all_edges=self.all_edges, use_2d=self.use_2d, use_3d_text=self.use_3d_text,
+                                xtitle=self.x_title, ytitle=self.y_title, ztitle=self.z_title,
+                                n_xlabels=self.n_xlabels, n_ylabels=self.n_ylabels, n_zlabels=self.n_zlabels,
+                                fmt=self.fmt, location=self.location,
+                                bounds=self.bounds,
+                                axes_ranges=self.bounds,
+                                font_size=self.font_size, font_family=self.font_family,
+                                # bold=bold,# color=color
+                                )
+
+        if self.show_axes:
+            self.pl.show_axes()
+
+        if self.set_camera:
+            self.pl.camera_position = self.camera_position
+            self.pl.camera.roll = self.camera_roll
+            self.pl.camera.azimuth = self.camera_azimuth
+
+        self.pl.show()
+
+    
+    def export_vt_format(self, path: str):
+        self.grid.save(path + self.ext)
+
 TEST_H5 = "/home/ale/Desktop/example/test.h5"
 TEST_FILE = "/home/ale/Desktop/example/measure.csv"
 YAML_FILE = "../../config/fiji-keys.yaml"
