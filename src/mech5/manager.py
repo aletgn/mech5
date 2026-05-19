@@ -9,6 +9,8 @@ from typing import Optional, Any, List, Dict, Tuple, Union
 import numpy as np
 from skimage.morphology import remove_small_holes
 
+import matplotlib.pyplot as plt
+
 from mech5.util import utc, Mask, Criterion, TrueMask
 
 
@@ -700,6 +702,38 @@ class RoughnessDatasetH5File(H5File):
                 "points": partition}
 
 
+def cartesian2polar(x, y, x0, y0):
+    radius = np.sqrt((x - x0)**2 + (y - y0)**2)
+    angle = np.arctan2(y - y0, x - x0) + np.pi # chi = y, phi = x
+    return radius, angle
+
+
+def normalise_to_zero(x):
+    """Rescale min to zero"""
+    return x - np.nanmin(x)
+
+
+def normalise(x, x_min, x_max):
+    return (x - x_min) / (x_max - x_min)
+
+
+def percentile(x):
+    x = x[~np.isnan(x)]
+    x_min = np.percentile(x, 2)
+    x_max = np.percentile(x, 98)
+    return x_min, x_max
+
+
+def rgb_map(x, x_min, x_max, y, y_min, y_max):
+    from matplotlib.colors import hsv_to_rgb
+    H = np.clip(normalise(x, x_min, x_max), 0, 1)
+    S = np.clip(normalise(y, y_min, y_max), 0, 1)
+    V = np.ones_like(H)
+    
+    HSV = np.stack([H, S, V], axis=-1)
+    return hsv_to_rgb(HSV)
+
+
 class DarkFieldXrayMicroscopyH5File(H5File):
 
     def __init__(self, filename, mode, overwrite = False):
@@ -834,6 +868,86 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         self.write("/dfxm/processed/gnd_burgers", b)
         self.write("/dfxm/processed/thickness", thk)
 
+    def radial_mosaicity_map(self,
+                             x, x_min, x_max,
+                             y, y_min, y_max, mask=None, N=100):
+        
+        
+        # centre of the square
+        x0 = 0.5 * (x_min + x_max)
+        y0 = 0.5 * (y_min + y_max)
+
+        # data conversion to polar
+        radius, angle = cartesian2polar(x, y, x0, y0)
+
+        # polar colormap
+        x_mesh = np.linspace(x_min, x_max, N)
+        y_mesh = np.linspace(y_min, y_max, N)
+        X, Y = np.meshgrid(x_mesh, y_mesh)
+        radius_mesh, angle_mesh = cartesian2polar(X, Y, x0, y0)
+
+        radius_max = max(np.nanmax(radius), radius_mesh.max())
+        rgb = rgb_map(angle, 0., 2*np.pi, radius, 0., radius_mesh.max())
+        rgb_mesh = rgb_map(angle_mesh, 0., 2*np.pi, radius_mesh, 0., radius_mesh.max())
+
+        # plt.imshow(rgb)
+        # plt.show()
+        return rgb, rgb_mesh
+    
+    
+    def write_radial_mosaicity_map(self,
+                                   x_min=None, x_max=None,
+                                   y_min=None, y_max=None, N: int=100):
+        layers = range(self.read("/dfxm/common/layers"))
+        
+        com_phi = self.read("/dfxm/processed/com_phi")
+        com_chi = self.read("/dfxm/processed/com_chi")
+        mask_phi = self.read("/dfxm/mask/com_phi")
+        mask_chi = self.read("/dfxm/mask/com_chi")
+
+        radial_data = []
+        radial_mesh = []
+
+        # global maps
+        if x_min is None and x_max is None and y_min is None and y_max is None:
+            phi_min = np.nanmin(com_phi)
+            phi_max = np.nanmax(com_phi)
+            chi_min = np.nanmin(com_chi)
+            chi_max = np.nanmax(com_chi)
+
+            self.write("/dfxm/processed/min_phi", phi_min)
+            self.write("/dfxm/processed/max_phi", phi_max)
+            self.write("/dfxm/processed/min_chi", chi_min)
+            self.write("/dfxm/processed/max_chi", chi_max)
+
+            for l in layers:
+                print(f"Processing layer: {l} -- global")
+                rdata, rmesh = self.radial_mosaicity_map(com_phi[l], phi_min, phi_max,
+                                                         com_chi[l], chi_min, chi_max,
+                                                         mask_chi[l], N)
+                radial_data.append(rdata)
+                radial_mesh.append(rmesh)
+                
+        # layer-wise maps
+        else:
+            phi_min = np.nanmin(com_phi[l])
+            phi_max = np.nanmax(com_phi[l])
+            chi_min = np.nanmin(com_chi[l])
+            chi_max = np.nanmax(com_chi[l])
+            for l in layers:
+                print(f"Processing layer: {l} -- layer-wise")
+                rdata, rmesh = self.radial_mosaicity_map(com_phi[l], phi_min, phi_max,
+                                                         com_chi[l], chi_min, chi_max,
+                                                         mask_phi[l], N)
+                radial_data.append(rdata)
+                radial_mesh.append(rmesh)
+
+        radial_data = np.asarray(radial_data)
+        print(radial_data.shape)
+        radial_mesh = np.asarray(radial_mesh)
+        self.write("/dfxm/processed/mosaicity_radial", radial_data)
+        self.write("/dfxm/processed/mosaicity_colorbar", radial_mesh)
+
 
     def query_layer(self, layer):
         com_phi_raw = self.read("/dfxm/raw/com_phi")[layer]
@@ -859,13 +973,15 @@ class DarkFieldXrayMicroscopyH5File(H5File):
 
         mis = self.read("/dfxm/processed/misorientation")[layer]
         gnd = self.read("/dfxm/processed/gnd")[layer]
-
+        mosaicity_radial = self.read("/dfxm/processed/mosaicity_radial")[layer]
+        mosaicity_colorbar = self.read("/dfxm/processed/mosaicity_colorbar")[layer]
 
         return {"com_phi_raw": com_phi_raw, "com_chi_raw": com_chi_raw, "mosaicity_raw": mosaicity_raw,
                 "com_phi": com_phi, "com_chi": com_chi, "mosaicity": mosaicity,
                 "mesh_phi": mesh_phi, "mesh_chi": mesh_chi, "ori_dist": ori_dist,
                 "mask_phi": mask_phi, "mask_chi": mask_chi, "mask_mosaicity": mask_mos[:, :, -1],
                 "morph_phi": morph_phi, "morph_chi": morph_chi, "morph_mos": morph_mos,
+                "mosaicity_radial": mosaicity_radial, "mosaicity_colorbar": mosaicity_colorbar,
                 "misorientation": mis, "gnd": gnd}
 
 

@@ -317,22 +317,51 @@ class H5PlotDarkFieldXrayMicroscopy:
     def __init__(self, h5: H5File):
         self.h5 = h5
 
+        self.com_phi_min = None
+        self.com_phi_max = None
+
+        self.com_chi_min = None
+        self.com_chi_max = None
+
+        self.mosa_min = None
+        self.mosa_max = None
+
+        self.mis_min = None
+        self.mis_max = None
+
+        self.gnd_min = None
+        self.gnd_max = None
+
 
     def plot_layer(self, layer):
         l = self.h5.query_layer(layer)
         fig, ax = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True, figsize=(16,10))
 
-        a0 = ax[0, 0].imshow(l["com_phi"])
-        a1 = ax[0, 1].imshow(l["com_chi"])
-        a2 = ax[0, 2].imshow(l["mosaicity"])
-        a3 = ax[1, 0].imshow(l["misorientation"], vmax=2)
-        a4 = ax[1, 2].imshow(l["gnd"], norm=LogNorm(vmin=1e-1, vmax=10), cmap="magma")
+        a0 = ax[0, 0].imshow(l["com_phi"],
+                             vmin=self.com_chi_min,
+                             vmax=self.com_chi_max,cmap="viridis")
+
+        a1 = ax[0, 1].imshow(l["com_chi"],
+                             vmin=self.com_phi_min,
+                             vmax=self.com_phi_max,cmap="viridis")
+
+        a2 = ax[0, 2].imshow(l["mosaicity_radial"])
+        
+        a2_ = ax[1, 2].imshow(l["mosaicity_colorbar"])
+        
+        a3 = ax[1, 0].imshow(l["misorientation"],
+                             vmin=self.mis_min,
+                             vmax=self.mis_max, cmap="RdYlBu_r")
+        
+        a4 = ax[1, 1].imshow(l["gnd"],
+                             norm=LogNorm(vmin=self.gnd_min,
+                                          vmax=self.gnd_max), cmap="magma")
 
         fig.colorbar(a0, ax=ax[0, 0])
         fig.colorbar(a1, ax=ax[0, 1])
-        fig.colorbar(a2, ax=ax[0, 2])
+        # fig.colorbar(a2, ax=ax[0, 2])
         fig.colorbar(a3, ax=ax[1, 0])
-        fig.colorbar(a4, ax=ax[1, 2])
+        fig.colorbar(a4, ax=ax[1, 1])
 
         plt.tight_layout()
         plt.show()
