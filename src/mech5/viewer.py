@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 from matplotlib.colors import LogNorm
-
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 FONT_SIZE = 14
 FONT_FAMILY = "sans-serif"
@@ -337,31 +337,44 @@ class H5PlotDarkFieldXrayMicroscopy:
         l = self.h5.query_layer(layer)
         fig, ax = plt.subplots(nrows=2, ncols=3, sharex=True, sharey=True, figsize=(16,10))
 
-        a0 = ax[0, 0].imshow(l["com_phi"],
-                             vmin=self.com_chi_min,
-                             vmax=self.com_chi_max,cmap="viridis")
-
-        a1 = ax[0, 1].imshow(l["com_chi"],
+        phi = ax[0, 0].imshow(np.where(l["morph_phi"], l["com_phi"], np.nan),
                              vmin=self.com_phi_min,
                              vmax=self.com_phi_max,cmap="viridis")
 
-        a2 = ax[0, 2].imshow(l["mosaicity_radial"])
+        chi = ax[0, 1].imshow(np.where(l["morph_chi"], l["com_chi"], np.nan),
+                             vmin=self.com_phi_min,
+                             vmax=self.com_phi_max,cmap="viridis")
+
+        img = np.where(np.repeat(l["morph_chi"][..., None], 3, axis=-1),
+                       l["mosaicity_radial"], np.nan)
         
-        a2_ = ax[1, 2].imshow(l["mosaicity_colorbar"])
+        mos = ax[0, 2].imshow(img)
+        cax = inset_axes(ax[0, 2], width="25%", height="25%", loc="lower right")
+        col = cax.imshow(l["mosaicity_colorbar"], origin="lower",
+                         extent=(self.h5.read("/dfxm/processed/min_phi"),
+                                 self.h5.read("/dfxm/processed/max_phi"),
+                                 self.h5.read("/dfxm/processed/min_chi"),
+                                 self.h5.read("/dfxm/processed/max_chi"),))
+
         
-        a3 = ax[1, 0].imshow(l["misorientation"],
+        mis = ax[1, 0].imshow(np.where(l["morph_phi"], l["misorientation"], np.nan),
                              vmin=self.mis_min,
                              vmax=self.mis_max, cmap="RdYlBu_r")
         
-        a4 = ax[1, 1].imshow(l["gnd"],
+        gnd = ax[1, 1].imshow(np.where(l["morph_phi"], l["gnd"], np.nan),
                              norm=LogNorm(vmin=self.gnd_min,
                                           vmax=self.gnd_max), cmap="magma")
+        
 
-        fig.colorbar(a0, ax=ax[0, 0])
-        fig.colorbar(a1, ax=ax[0, 1])
-        # fig.colorbar(a2, ax=ax[0, 2])
-        fig.colorbar(a3, ax=ax[1, 0])
-        fig.colorbar(a4, ax=ax[1, 1])
+        try:
+            strain = ax[1, 2].imshow(np.where(l["morph_phi"], self.h5.read("dfxm/processed/strain")[0], np.nan))
+        except:
+            print("Strain data not found")
+
+        fig.colorbar(phi, ax=ax[0, 0])
+        fig.colorbar(chi, ax=ax[0, 1])
+        fig.colorbar(mis, ax=ax[1, 0])
+        fig.colorbar(gnd, ax=ax[1, 1])
 
         plt.tight_layout()
         plt.show()

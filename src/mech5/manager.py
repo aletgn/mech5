@@ -755,13 +755,18 @@ class DarkFieldXrayMicroscopyH5File(H5File):
             self.write(dataset_out, h.read(dataset_in))
 
 
-    def write_concatenated_layers(self, h5_list, dataset_in, dataset_out, transpose=None):
+    def write_concatenated_layers(self, h5_list, dataset_in, dataset_out, transpose=None, norm=False):
         merged = []
+        mins = []
+        maxs = []
 
         for f in h5_list:
             h5 = H5File(f, "r")
             h5.open()
-            merged.append(h5.read(dataset_in))
+            if norm:
+                merged.append(normalise_to_zero(h5.read(dataset_in)))
+            else:
+                merged.append(h5.read(dataset_in))
             h5.inspect()
             h5.close()
         merged = np.asarray(merged)
@@ -824,7 +829,7 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         data = self.read(dataset_path)[layer]
         mask = self.read(mask_path)[layer]
         closed_mask = ~remove_small_holes(mask, min_size_to_close)
-        masked_data = np.where(closed_mask, data, np.nan)
+        masked_data = np.where(closed_mask, data, 0)
         return masked_data, closed_mask
 
 
@@ -844,6 +849,25 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         closed_mask = np.asarray(closed_mask)
         self.write(dataset_out, masked_data)
         self.write(dataset_morph, closed_mask.astype(int))
+
+
+    # def write_normalised_com(self, dataset):
+        # layers = range(self.read("/dfxm/common/layers"))
+        # norm_com = []
+        # com_mins = []
+        # com_maxs = []
+
+        # for l in layers:
+        #     com = self.read(dataset)
+        #     com_zero = normalise_to_zero(com)
+        #     com_min, com_max = percentile(com)
+        #     norm_com.append(com_zero)
+        #     com_mins.append(com_min)
+        #     com_maxs.append(com_max)
+
+        # self.write(dataset, np.asarray(norm_com))
+        # self.write(dataset + "_min", com_min)
+        # self.write(dataset + "_max", com_max)
 
 
     def write_misorientation(self):
