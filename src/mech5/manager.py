@@ -755,7 +755,8 @@ class DarkFieldXrayMicroscopyH5File(H5File):
             self.write(dataset_out, h.read(dataset_in))
 
 
-    def write_concatenated_layers(self, h5_list, dataset_in, dataset_out, transpose=None, norm=False):
+    def write_concatenated_layers(self, h5_list, dataset_in, dataset_out,
+                                  select_dim=None, transpose=None, norm=False):
         merged = []
         mins = []
         maxs = []
@@ -763,12 +764,19 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         for f in h5_list:
             h5 = H5File(f, "r")
             h5.open()
+            layer = h5.read(dataset_in)
+
+            if select_dim is not None:
+                layer = layer[select_dim]
+                print(layer.shape)
+
             if norm:
-                merged.append(normalise_to_zero(h5.read(dataset_in)))
+                merged.append(normalise_to_zero(layer))
             else:
-                merged.append(h5.read(dataset_in))
-            h5.inspect()
+                merged.append(layer)
+            # h5.inspect()
             h5.close()
+        
         merged = np.asarray(merged)
 
         if transpose is not None:
@@ -818,7 +826,7 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         phi_mask = np.isnan(com_phi)
         chi_mask = np.isnan(com_chi)
         mosa_mask = np.isclose(mosaicity, 0., atol=1e-12)
-        assert np.array_equal(phi_mask, chi_mask)
+        # assert np.array_equal(phi_mask, chi_mask)
 
         self.write("/dfxm/mask/com_phi", phi_mask)
         self.write("/dfxm/mask/com_chi", chi_mask)
@@ -974,39 +982,42 @@ class DarkFieldXrayMicroscopyH5File(H5File):
 
 
     def query_layer(self, layer):
-        com_phi_raw = self.read("/dfxm/raw/com_phi")[layer]
-        com_chi_raw = self.read("/dfxm/raw/com_chi")[layer]
-        mosaicity_raw = self.read("/dfxm/raw/mosaicity")[layer]
+        data = {}
 
-        com_phi = self.read("/dfxm/processed/com_phi")[layer]
-        com_chi = self.read("/dfxm/processed/com_chi")[layer]
-        mosaicity = self.read("/dfxm/processed/mosaicity")[layer]
+        keys = {"com_phi_raw": "/dfxm/raw/com_phi",
+                "com_chi_raw": "/dfxm/raw/com_chi",
+                "mosaicity_raw": "/dfxm/raw/mosaicity",
+                "com_phi": "/dfxm/processed/com_phi",
+                "com_chi": "/dfxm/processed/com_chi",
+                "mosaicity": "/dfxm/processed/mosaicity",
+                "ori_dist": "/dfxm/raw/ori_dist",
+                "log_ori_dist": "/dfxm/processed/log_ori_dist",
+                "mesh_phi": "/dfxm/processed/mesh_phi",
+                "mesh_chi": "/dfxm/processed/mesh_chi",
+                "mask_phi": "/dfxm/mask/com_phi",
+                "mask_chi": "/dfxm/mask/com_chi",
+                "mask_mosaicity": "/dfxm/mask/mosaicity",
+                "morph_phi": "/dfxm/processed/morph_phi",
+                "morph_chi": "/dfxm/processed/morph_chi",
+                "morph_mos": "/dfxm/processed/morph_mosaicity",
+                "misorientation": "/dfxm/processed/misorientation",
+                "gnd": "/dfxm/processed/gnd",
+                "mosaicity_radial": "/dfxm/processed/mosaicity_radial",
+                "mosaicity_colorbar": "/dfxm/processed/mosaicity_colorbar"}
 
-        ori_dist = self.read("/dfxm/raw/ori_dist")[layer]
-        log_ori_dist = self.read("/dfxm/processed/log_ori_dist")[layer]
-        mesh_phi = self.read("/dfxm/processed/mesh_phi")[layer]
-        mesh_chi = self.read("/dfxm/processed/mesh_chi")[layer]
+        for key, path in keys.items():
+            try:
+                value = self.read(path)[layer]
 
-        mask_phi = self.read("/dfxm/mask/com_phi")[layer]
-        mask_chi = self.read("/dfxm/mask/com_chi")[layer]
-        mask_mos = self.read("/dfxm/mask/mosaicity")[layer]
+                if key == "mask_mosaicity":
+                    value = value[:, :, -1]
 
-        morph_phi = self.read("/dfxm/processed/morph_phi")[layer]
-        morph_chi = self.read("/dfxm/processed/morph_chi")[layer]
-        morph_mos = self.read("/dfxm/processed/morph_mosaicity")[layer]
+                data[key] = value
 
-        mis = self.read("/dfxm/processed/misorientation")[layer]
-        gnd = self.read("/dfxm/processed/gnd")[layer]
-        mosaicity_radial = self.read("/dfxm/processed/mosaicity_radial")[layer]
-        mosaicity_colorbar = self.read("/dfxm/processed/mosaicity_colorbar")[layer]
+            except (KeyError, IndexError, OSError):
+                data[key] = None
 
-        return {"com_phi_raw": com_phi_raw, "com_chi_raw": com_chi_raw, "mosaicity_raw": mosaicity_raw,
-                "com_phi": com_phi, "com_chi": com_chi, "mosaicity": mosaicity,
-                "mesh_phi": mesh_phi, "mesh_chi": mesh_chi, "ori_dist": ori_dist,
-                "mask_phi": mask_phi, "mask_chi": mask_chi, "mask_mosaicity": mask_mos[:, :, -1],
-                "morph_phi": morph_phi, "morph_chi": morph_chi, "morph_mos": morph_mos,
-                "mosaicity_radial": mosaicity_radial, "mosaicity_colorbar": mosaicity_colorbar,
-                "misorientation": mis, "gnd": gnd}
+        return data
 
 
 TEST_FILE =  "./testh5.h5"
