@@ -313,7 +313,7 @@ class H5PlotRoughness(H5Plot):
 
 
 class H5PlotDarkFieldXrayMicroscopy:
-
+    """This class shall be deprecated in the future."""
     def __init__(self, h5: H5File):
         self.h5 = h5
 
@@ -347,7 +347,7 @@ class H5PlotDarkFieldXrayMicroscopy:
 
         img = np.where(np.repeat(l["morph_chi"][..., None], 3, axis=-1),
                        l["mosaicity_radial"], np.nan)
-        
+
         mos = ax[0, 2].imshow(img)
         cax = inset_axes(ax[0, 2], width="25%", height="25%", loc="lower right")
         col = cax.imshow(l["mosaicity_colorbar"], origin="lower",
@@ -356,15 +356,15 @@ class H5PlotDarkFieldXrayMicroscopy:
                                  self.h5.read("/dfxm/processed/min_chi"),
                                  self.h5.read("/dfxm/processed/max_chi"),))
 
-        
+
         mis = ax[1, 0].imshow(np.where(l["morph_phi"], l["misorientation"], np.nan),
                              vmin=self.mis_min,
                              vmax=self.mis_max, cmap="RdYlBu_r")
-        
+
         gnd = ax[1, 1].imshow(np.where(l["morph_phi"], l["gnd"], np.nan),
                              norm=LogNorm(vmin=self.gnd_min,
                                           vmax=self.gnd_max), cmap="magma")
-        
+
 
         try:
             strain = ax[1, 2].imshow(np.where(l["morph_phi"], self.h5.read("dfxm/processed/strain")[0], np.nan))
@@ -402,6 +402,135 @@ class H5PlotDarkFieldXrayMicroscopy:
 
         plt.tight_layout()
         plt.show()
+
+
+class H5PlotDarkField:
+
+    def __init__(self, h5: H5File):
+        self.h5 = h5
+        self.inset = False
+        self._min = None
+        self._max = None
+        self.extent = None
+        self.iextent = None
+        self.xlabel = None
+        self.ylabel = None
+        self.ixlabel = None
+        self.iylabel = None
+        self.cbar = False
+        self.clabel = None
+        self.cscale = None
+        self.cmap = "viridis"
+        self.origin = "lower"
+        self.iloc = "upper right"
+        self.folder = None
+        self.name = None
+        self.save = False
+        self.format = "png"
+        self.dpi = 300
+
+
+    def plot(self, dataset, layer, imap=None, dist=None):
+        image = self.h5.read(dataset)[layer]
+
+        fig, ax = plt.subplots()
+
+        if self.cscale == "log":
+            im = ax.imshow(image, cmap=self.cmap, norm=LogNorm(vmin=self._min, vmax=self._max), origin=self.origin)
+        else:
+            im = ax.imshow(image, cmap=self.cmap, vmin=self._min, vmax=self._max, origin=self.origin)
+
+
+        if self.inset:
+            axins = inset_axes(ax, width="35%", height="35%", loc=self.iloc, borderpad=0)
+            axins.tick_params(axis="both", direction="in", top=True, right=True)
+            if imap is not None:
+                axins.imshow(imap, extent=self.iextent, origin=self.origin)
+                axins.set_xlabel(self.ixlabel)
+                axins.set_ylabel(self.iylabel)
+
+            if dist is not None:
+                axins.contour(dist[0], dist[1], dist[2], cmap="jet", levels=10)
+
+        ax.set_xlabel(self.xlabel)
+        ax.set_ylabel(self.ylabel)
+
+        ax.tick_params(axis="both", direction="in", top=True, right=True)
+
+        if self.cbar:
+            cbar = fig.colorbar(im, label=self.clabel)
+            cbar.ax.tick_params(axis="both", direction="in", left=True, right=True)
+
+        plt.tight_layout()
+        if self.save:
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi, bbox_inches="tight")
+        else:
+            plt.show()
+
+
+    def plot_layer(self, com_mu=None, com_phi=None,
+                   mosaicity=None, mosaicity_map=None,
+                   ori_mu=None, ori_phi=None, ori_dist=None,
+                   misorientation=None, gnd=None, strain=None, layer=0):
+
+        fig, ax = plt.subplots(2, 3, dpi=300)
+
+        if com_mu is not None:
+            mu = self.h5.read(com_mu)[layer]
+            imu = ax[0, 0].imshow(mu, cmap="viridis", vmin=0)
+            ax[0, 0].set_title("CoM mu")
+            fig.colorbar(imu, ax=ax[0, 0])
+
+        if com_phi is not None:
+            phi = self.h5.read(com_phi)[layer]
+            iphi = ax[0, 1].imshow(phi, cmap="viridis", vmin=0)
+            ax[0, 1].set_title("CoM phi")
+            fig.colorbar(iphi, ax=ax[0, 1])
+
+        if mosaicity is not None:
+            mos = self.h5.read(mosaicity)[layer]
+            axins = inset_axes(ax[0, 2], width="35%", height="35%", loc="lower right")
+
+            imos = ax[0, 2].imshow(mos)
+            ax[0, 2].set_title("Mosaicity")
+            ins_extent = None
+
+            if ori_dist is not None:
+                ori = self.h5.read(ori_dist)[layer]
+                ori_mu = self.h5.read(ori_mu)[layer]
+                ori_phi = self.h5.read(ori_phi)[layer]
+                axins.contour(ori_mu, ori_phi, ori, cmap="jet", levels=5)
+                ins_extent = (np.nanmin(ori_mu), np.nanmax(ori_mu), np.nanmin(ori_phi), np.nanmax(ori_phi))
+
+            if mosaicity_map is not None:
+                _map = self.h5.read(mosaicity_map)[layer]
+                axins.imshow(_map, extent=ins_extent)
+
+
+        if misorientation is not None:
+            mis = self.h5.read(misorientation)[layer]
+            imis = ax[1, 0].imshow(mis, cmap="RdYlBu_r", vmin=0, vmax=3.5)
+            ax[1, 0].set_title("Misorientation")
+            fig.colorbar(imis, ax=ax[1, 0])
+
+        if gnd is not None:
+            gnd = self.h5.read(gnd)[layer]
+            ignd = ax[1, 1].imshow(gnd, cmap="magma", norm=LogNorm(vmin=0.1, vmax=10))
+            ax[1, 1].set_title("GND")
+            fig.colorbar(ignd, ax=ax[1, 1])
+
+        if strain is not None:
+            strain = self.h5.read(strain)[layer]
+            istr = ax[1, 2].imshow(strain, cmap="jet")
+            ax[1, 2].set_title("Strain")
+            fig.colorbar(istr, ax=ax[1, 2])
+
+        for a in ax.flat:
+            a.tick_params(axis="both", direction="in", top=True, right=True)
+
+        plt.tight_layout()
+        plt.show()
+
 
 def test_query_data():
     h5 = SegmentedDatasetH5File("/home/ale/Desktop/example/test.h5", "r")

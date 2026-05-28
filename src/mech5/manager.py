@@ -703,21 +703,24 @@ class RoughnessDatasetH5File(H5File):
 
 
 def cartesian2polar(x, y, x0, y0):
+    """This function shall be deprecated in the future."""
     radius = np.sqrt((x - x0)**2 + (y - y0)**2)
     angle = np.arctan2(y - y0, x - x0) + np.pi # chi = y, phi = x
     return radius, angle
 
 
 def normalise_to_zero(x):
-    """Rescale min to zero"""
+    """This function shall be deprecated in the future."""
     return x - np.nanmin(x)
 
 
 def normalise(x, x_min, x_max):
+    """This function shall be deprecated in the future."""
     return (x - x_min) / (x_max - x_min)
 
 
 def percentile(x):
+    """This function shall be deprecated in the future."""
     x = x[~np.isnan(x)]
     x_min = np.percentile(x, 2)
     x_max = np.percentile(x, 98)
@@ -725,16 +728,18 @@ def percentile(x):
 
 
 def rgb_map(x, x_min, x_max, y, y_min, y_max):
+    """This function shall be deprecated in the future."""
     from matplotlib.colors import hsv_to_rgb
     H = np.clip(normalise(x, x_min, x_max), 0, 1)
     S = np.clip(normalise(y, y_min, y_max), 0, 1)
     V = np.ones_like(H)
-    
+
     HSV = np.stack([H, S, V], axis=-1)
     return hsv_to_rgb(HSV)
 
 
 class DarkFieldXrayMicroscopyH5File(H5File):
+    """This class shall be deprecated in the future."""
 
     def __init__(self, filename, mode, overwrite = False):
         super().__init__(filename, mode, overwrite)
@@ -776,7 +781,7 @@ class DarkFieldXrayMicroscopyH5File(H5File):
                 merged.append(layer)
             # h5.inspect()
             h5.close()
-        
+
         merged = np.asarray(merged)
 
         if transpose is not None:
@@ -903,8 +908,8 @@ class DarkFieldXrayMicroscopyH5File(H5File):
     def radial_mosaicity_map(self,
                              x, x_min, x_max,
                              y, y_min, y_max, mask=None, N=100):
-        
-        
+
+
         # centre of the square
         x0 = 0.5 * (x_min + x_max)
         y0 = 0.5 * (y_min + y_max)
@@ -925,13 +930,13 @@ class DarkFieldXrayMicroscopyH5File(H5File):
         # plt.imshow(rgb)
         # plt.show()
         return rgb, rgb_mesh
-    
-    
+
+
     def write_radial_mosaicity_map(self,
                                    x_min=None, x_max=None,
                                    y_min=None, y_max=None, N: int=100):
         layers = range(self.read("/dfxm/common/layers"))
-        
+
         com_phi = self.read("/dfxm/processed/com_phi")
         com_chi = self.read("/dfxm/processed/com_chi")
         mask_phi = self.read("/dfxm/mask/com_phi")
@@ -959,7 +964,7 @@ class DarkFieldXrayMicroscopyH5File(H5File):
                                                          mask_chi[l], N)
                 radial_data.append(rdata)
                 radial_mesh.append(rmesh)
-                
+
         # layer-wise maps
         else:
             phi_min = np.nanmin(com_phi[l])
@@ -1018,6 +1023,53 @@ class DarkFieldXrayMicroscopyH5File(H5File):
                 data[key] = None
 
         return data
+
+
+class DarkFieldH5File(H5File):
+    """Manager class to make stacks out of DFXM scans"""
+
+    def __init__(self, filename, mode, overwrite = False):
+        super().__init__(filename, mode, overwrite)
+        self.layers = None
+        self.L = None
+
+    def write_pixel_size(self, pix_x: int=1, pix_y: int=1):
+        self.write("/dfxm/common/pix_x", pix_x)
+        self.write("/dfxm/common/pix_y", pix_y)
+
+
+    def load_file_list(self, h5_layers):
+        self.layers = h5_layers
+        self.L = len(self.layers)
+
+
+    def write_layer_number(self, L=None):
+        if self.L is None:
+            self.L = L
+        else:
+            self.write("/dfxm/common/layers", self.L)
+
+
+    def write_layers(self, dataset_in, dataset_out, dim=None, transpose=None):
+        stack = []
+        for f in self.layers:
+            print(f"Concatenate {f}: {dataset_in} -> {dataset_out}")
+            h5 = H5File(f, "r")
+            h5.open()
+            layer = h5.read(dataset_in)
+
+            if dim is not None:
+                layer = layer[dim]
+
+            stack.append(layer)
+            h5.close()
+
+        stack = np.asarray(stack)
+
+        if transpose is not None:
+            stack = stack.transpose(transpose)
+
+        self.write(dataset_out, stack)
 
 
 TEST_FILE =  "./testh5.h5"

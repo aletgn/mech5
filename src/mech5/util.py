@@ -86,6 +86,10 @@ def test_protocols_instance():
     m = Mask(np.array([0, 1, 0]))
 
 
+def normalise(x, x_min, x_max):
+    return (x - x_min) / (x_max - x_min)
+
+
 if __name__ == "__main__":
 
     test_protocols_instance()
