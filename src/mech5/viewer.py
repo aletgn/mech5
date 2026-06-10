@@ -11,6 +11,8 @@ import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from matplotlib.ticker import FormatStrFormatter, LogFormatterSciNotation
 
 FONT_SIZE = 14
 FONT_FAMILY = "sans-serif"
@@ -411,8 +413,11 @@ class H5PlotDarkField:
         self.inset = False
         self._min = None
         self._max = None
-        self.extent = None
+        self.pix_x = None
+        self.pix_y = None
         self.iextent = None
+        self.xlim = None
+        self.ylim = None
         self.xlabel = None
         self.ylabel = None
         self.ixlabel = None
@@ -420,7 +425,10 @@ class H5PlotDarkField:
         self.cbar = False
         self.clabel = None
         self.cscale = None
+        self.cori = "horizontal"
+        self.cshrink = 1
         self.cmap = "viridis"
+        self.cpad = 1
         self.origin = "lower"
         self.iloc = "upper right"
         self.folder = None
@@ -428,21 +436,37 @@ class H5PlotDarkField:
         self.save = False
         self.format = "png"
         self.dpi = 300
+        self.norm_ori = None
+        self.ticks_off = None
+        self.scale_bar = None
+        self.figsize = (10, 12)
 
 
     def plot(self, dataset, layer, imap=None, dist=None):
         image = self.h5.read(dataset)[layer]
 
         fig, ax = plt.subplots()
+        if self.pix_x is None and self.pix_y is None:
+            extent = None
+        else:
+            extent = (0, image.shape[0]*self.pix_x, 0, image.shape[1]*self.pix_y)
 
         if self.cscale == "log":
-            im = ax.imshow(image, cmap=self.cmap, norm=LogNorm(vmin=self._min, vmax=self._max), origin=self.origin)
+            im = ax.imshow(image, cmap=self.cmap, norm=LogNorm(vmin=self._min, vmax=self._max),
+                           extent=extent, origin=self.origin)
         else:
-            im = ax.imshow(image, cmap=self.cmap, vmin=self._min, vmax=self._max, origin=self.origin)
+            im = ax.imshow(image, cmap=self.cmap, vmin=self._min, vmax=self._max,
+                           extent=extent, origin=self.origin)
 
+        if self.scale_bar is not None:
+            scalebar = AnchoredSizeBar(transform=ax.transData, **self.scale_bar)
+            ax.add_artist(scalebar)
 
         if self.inset:
-            axins = inset_axes(ax, width="35%", height="35%", loc=self.iloc, borderpad=0)
+            # axins = inset_axes(ax, width="35%", height="35%", loc=self.iloc, borderpad=0)
+            w, h = 0.3, 0.3
+            axins = ax.inset_axes([1 - w, 1 - h, w, h], transform=ax.transAxes)
+            axins.set_anchor('NE')
             axins.tick_params(axis="both", direction="in", top=True, right=True)
             if imap is not None:
                 axins.imshow(imap, extent=self.iextent, origin=self.origin)
@@ -450,20 +474,29 @@ class H5PlotDarkField:
                 axins.set_ylabel(self.iylabel)
 
             if dist is not None:
-                axins.contour(dist[0], dist[1], dist[2], cmap="jet", levels=10)
+                ori = dist[2] if self.norm_ori is None else self.norm_ori(dist[2])
+                axins.contour(dist[0], dist[1], ori, cmap="jet", levels=10)
 
         ax.set_xlabel(self.xlabel)
         ax.set_ylabel(self.ylabel)
+        ax.set_xlim(self.xlim)
+        ax.set_ylim(self.ylim)
 
-        ax.tick_params(axis="both", direction="in", top=True, right=True)
+        if self.ticks_off:
+            ax.axis('off')
+        else:
+            ax.tick_params(axis="both", direction="in", top=True, right=True)
 
         if self.cbar:
-            cbar = fig.colorbar(im, label=self.clabel)
-            cbar.ax.tick_params(axis="both", direction="in", left=True, right=True)
+            cbar = fig.colorbar(im, label=self.clabel, orientation=self.cori, shrink=self.cshrink)
+            cbar.ax.tick_params(axis="both", direction="in", left=True, right=True, top=True, bottom=True)
+            cbar.ax.tick_params(which='minor', direction="in", left=True, right=True, top=True, bottom=True)
+            # cbar.ax.minorticks_off()
 
         plt.tight_layout()
         if self.save:
-            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi, bbox_inches="tight")
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
         else:
             plt.show()
 
@@ -530,6 +563,142 @@ class H5PlotDarkField:
 
         plt.tight_layout()
         plt.show()
+
+
+    def plot_tiles(self, dataset, rows=4, cols=4, imap=None, dist=None):
+        image = self.h5.read(dataset)
+
+        vmin = np.nanmin(image)
+        vmax = np.nanmax(image)
+
+        fig = plt.figure(figsize=self.figsize)
+
+        left = 0.05
+        right = 0.95
+        bottom = 0.1
+        top = 0.95
+
+        wspace = 0.02
+        hspace = 0.02
+
+        tile_w = (right - left - (cols - 1) * wspace) / cols
+        tile_h = (top - bottom - (rows - 1) * hspace) / rows
+
+        axes = []
+
+        for r in range(rows):
+            for c in range(cols):
+                x0 = left + c * (tile_w + wspace)
+                y0 = top - (r + 1) * tile_h - r * hspace
+                axes.append(fig.add_axes([x0, y0, tile_w, tile_h]))
+
+        n_layers = image.shape[0]
+        filled_rows = (n_layers + cols - 1) // cols
+        last_row_filled = n_layers % cols
+
+        im = None
+
+        for i, ax in enumerate(axes):
+            if i >= n_layers:
+                ax.set_visible(False)
+                continue
+
+            row = i // cols
+            col = i % cols
+
+            if row == filled_rows - 1 and last_row_filled != 0:
+                offset = (cols - last_row_filled) / 2
+                col = col + offset
+
+            x0 = left + col * (tile_w + wspace)
+            y0 = top - (row + 1) * tile_h - row * hspace
+            ax.set_position([x0, y0, tile_w, tile_h])
+
+            imi = image[i]
+
+            if self.pix_x is None or self.pix_y is None:
+                extent = None
+            else:
+                try:
+                    nx, ny = imi.shape
+                except ValueError:
+                    nx, ny, _ = imi.shape
+                extent = (0, nx * self.pix_x, 0, ny * self.pix_y)
+
+            if self.cscale == "log":
+                im = ax.imshow(imi, cmap=self.cmap, norm=LogNorm(vmin=self._min, vmax=self._max),
+                            extent=extent, origin=self.origin)
+            else:
+                im = ax.imshow(imi, cmap=self.cmap, vmin=self._min, vmax=self._max,
+                            extent=extent, origin=self.origin)
+
+            ax.set_title(f"{i + 1}th layer", size=10, pad=2)
+
+            if self.ticks_off:
+                ax.axis('off')
+            else:
+                ax.tick_params(axis="both", direction="in", top=True, right=True)
+
+            if self.scale_bar is not None:
+                scalebar = AnchoredSizeBar(transform=ax.transData, **self.scale_bar)
+                ax.add_artist(scalebar)
+
+            if self.inset:
+                axins = inset_axes(ax, width="15%", height="15%", loc=self.iloc, borderpad=0)
+                axins.tick_params(axis="both", direction="in", top=True, right=True, labelsize=8)
+                if imap is not None:
+                    axins.imshow(imap[i], extent=self.iextent, origin=self.origin)
+                    axins.set_xlabel(self.ixlabel, size=8)
+                    axins.set_ylabel(self.iylabel, size=8)
+
+                if dist is not None:
+                    ori = dist[2][i] if self.norm_ori is None else self.norm_ori(dist[2][i])
+                    axins.contour(dist[0][i], dist[1][i], ori, cmap="jet", levels=10)
+
+        if self.cbar:
+            cbar_ax = fig.add_axes([0.25, 0.1, 0.5, 0.02])
+            cbar_ax.set_xlabel(self.clabel, labelpad=1)
+            fig.colorbar(im, cax=cbar_ax, orientation="horizontal", label= self.clabel, pad=self.cpad)
+
+        plt.tight_layout()
+        if self.save:
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
+        else:
+            plt.show()
+
+
+    def plot_colorbar(self, dataset):
+        image = self.h5.read(dataset)
+        import pylab as pl
+        import matplotlib as mpl
+
+        fig = plt.figure(figsize=(6, 1))
+        cax = fig.add_axes([0.1, 0.45, 0.8, 0.2])
+
+        if self.cscale == "log":
+            norm = mpl.colors.LogNorm(vmin=self._min, vmax=self._max)
+        else:
+            norm = mpl.colors.Normalize(vmin=self._min, vmax=self._max)
+
+        sm = mpl.cm.ScalarMappable(norm=norm, cmap=self.cmap)
+        sm.set_array([])
+
+        cbar = fig.colorbar(sm, cax=cax, orientation=self.cori)
+        cbar.set_label(self.clabel)
+        cbar.ax.tick_params(which="both", direction="in", right=True, top=True,
+                            bottom=True, left=True)
+
+        if self.cscale == "log":
+            cbar.ax.xaxis.set_major_formatter(LogFormatterSciNotation())
+        else:
+            cbar.ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+
+        if self.save:
+            plt.savefig(self.folder+"_cbar_"+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
+        else:
+            plt.show()
 
 
 def test_query_data():
