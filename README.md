@@ -18,4 +18,5 @@ The package is structured as follows:
 - I/O for computed tomography (CT) `H5` datasets.
 - I/O for confocal surface roughness `H5` datasets.
 - I/O processing of Dark Field X-ray Microscopy `H5` datasets.
+- I/O processing of EBSD `H5` datasets.
 - Conversion from spreadsheets into the above files.

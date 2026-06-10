@@ -9,7 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
-from matplotlib.colors import LogNorm
+from matplotlib.colors import Normalize, LogNorm, SymLogNorm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from matplotlib.ticker import FormatStrFormatter, LogFormatterSciNotation
@@ -697,6 +697,90 @@ class H5PlotDarkField:
         if self.save:
             plt.savefig(self.folder+"_cbar_"+self.name, format=self.format, dpi=self.dpi,
                         bbox_inches="tight", pad_inches=0)
+        else:
+            plt.show()
+
+
+class H5EBSDPlot:
+
+    def __init__(self, h5):
+        self.h5 = h5
+        self._min = None
+        self._max = None
+        self.saturate = True
+        self.xlabel = None
+        self.ylabel = None
+        self.xlim = None
+        self.ylim = None
+        self.origin = "lower"
+        self.pix_x = None
+        self.pix_y = None
+        self.cbar = True
+        self.clabel = None
+        self.cscale = None
+        self.linthresh = 1e-3
+        self.cori = "vertical"
+        self.cshrink = 0.8
+        self.cmap = "viridis"
+        self.cpad = 1
+        self.title = None
+        self.folder = None
+        self.name = None
+        self.save = False
+        self.format = "png"
+        self.dpi = 300
+        self.ticks_off = None
+        self.scale_bar = None
+
+
+    def plot(self, dataset):
+        image = self.h5.read(dataset)
+
+        if self.saturate:
+            image[image > self._max] = np.nan
+            image[image < self._min] = np.nan
+
+        fig, ax = plt.subplots()
+
+        if self.pix_x is None and self.pix_y is None:
+            extent = None
+        else:
+            extent = (0, image.shape[1]*self.pix_x, 0, image.shape[0]*self.pix_y)
+
+        if self.cscale == "log":
+            norm = LogNorm(vmin=self._min, vmax=self._max)
+        elif self.cscale == "symlog":
+            norm = SymLogNorm(linthresh=self.linthresh, vmin=self._min, vmax=self._max,)
+        else:
+            norm = Normalize(vmin=self._min, vmax=self._max)
+
+        im = ax.imshow(image, extent=extent, cmap=self.cmap, norm=norm)
+
+        if self.ticks_off:
+            ax.axis('off')
+        else:
+            ax.tick_params(axis="both", direction="in", top=True, right=True)
+
+        if self.scale_bar is not None:
+            scalebar = AnchoredSizeBar(transform=ax.transData, **self.scale_bar)
+            ax.add_artist(scalebar)
+
+        if self.cbar:
+            cbar = fig.colorbar(im, label=self.clabel, orientation=self.cori, shrink=self.cshrink)
+            cbar.ax.tick_params(axis="both", direction="in", left=True, right=True, top=True, bottom=True)
+            cbar.ax.tick_params(which='minor', direction="in", left=True, right=True, top=True, bottom=True)
+
+        ax.set_xlabel(self.xlabel)
+        ax.set_ylabel(self.ylabel)
+        ax.set_xlim(self.xlim)
+        ax.set_ylim(self.ylim)
+        ax.set_title(self.title)
+
+        plt.tight_layout()
+        if self.save:
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
+            print(f"Saved {self.folder+self.name}")
         else:
             plt.show()
 
