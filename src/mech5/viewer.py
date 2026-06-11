@@ -739,7 +739,7 @@ class H5EBSDPlot:
 
         if self.saturate_max:
             image[image > self._max] = np.nan
-        
+
         if self.saturate_min:
             image[image < self._min] = np.nan
 
@@ -772,12 +772,42 @@ class H5EBSDPlot:
             cbar = fig.colorbar(im, label=self.clabel, orientation=self.cori, shrink=self.cshrink)
             cbar.ax.tick_params(axis="both", direction="in", left=True, right=True, top=True, bottom=True)
             cbar.ax.tick_params(which='minor', direction="in", left=True, right=True, top=True, bottom=True)
+        
 
         ax.set_xlabel(self.xlabel)
         ax.set_ylabel(self.ylabel)
         ax.set_xlim(self.xlim)
         ax.set_ylim(self.ylim)
         ax.set_title(self.title)
+
+        plt.tight_layout()
+        if self.save:
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
+            print(f"Saved {self.folder+self.name}")
+        else:
+            plt.show()
+
+
+    def plot_image(self, dataset):
+        image = self.h5.read(dataset)
+
+        if self.pix_x is None and self.pix_y is None:
+            extent = None
+        else:
+            extent = (0, image.shape[1]*self.pix_y, 0, image.shape[0]*self.pix_x)
+
+        fig, ax = plt.subplots()
+        ax.imshow(image, extent=extent, cmap=self.cmap)
+
+        if self.ticks_off:
+            ax.axis('off')
+        else:
+            ax.tick_params(axis="both", direction="in", top=True, right=True)
+
+        if self.scale_bar is not None:
+            scalebar = AnchoredSizeBar(transform=ax.transData, **self.scale_bar)
+            ax.add_artist(scalebar)
 
         plt.tight_layout()
         if self.save:
