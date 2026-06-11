@@ -707,7 +707,8 @@ class H5EBSDPlot:
         self.h5 = h5
         self._min = None
         self._max = None
-        self.saturate = True
+        self.saturate_max = True
+        self.saturate_min = True
         self.xlabel = None
         self.ylabel = None
         self.xlim = None
@@ -736,8 +737,10 @@ class H5EBSDPlot:
     def plot(self, dataset):
         image = self.h5.read(dataset)
 
-        if self.saturate:
+        if self.saturate_max:
             image[image > self._max] = np.nan
+        
+        if self.saturate_min:
             image[image < self._min] = np.nan
 
         fig, ax = plt.subplots()
