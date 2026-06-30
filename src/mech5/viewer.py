@@ -695,7 +695,7 @@ class H5PlotDarkField:
             cbar.ax.xaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
         if self.save:
-            plt.savefig(self.folder+"_cbar_"+self.name, format=self.format, dpi=self.dpi,
+            plt.savefig(self.folder+"df_cbar_"+self.name, format=self.format, dpi=self.dpi,
                         bbox_inches="tight", pad_inches=0)
         else:
             plt.show()
@@ -736,6 +736,12 @@ class H5EBSDPlot:
 
     def plot(self, dataset):
         image = self.h5.read(dataset)
+
+        if self._min is None:
+            self._min = np.nanmin(image)
+        
+        if self._max is None:
+            self._max = np.nanmax(image)
 
         if self.saturate_max:
             image[image > self._max] = np.nan

@@ -2,6 +2,10 @@ import sys
 sys.path.append('../../src/')
 
 import numpy as np
+
+from scipy import ndimage
+from skimage import measure
+
 from skimage.morphology import remove_small_holes
 import matplotlib.pyplot as plt
 
@@ -312,3 +316,132 @@ class DarkFieldProcessor(H5File):
         stack = self.read(dataset_in)
         print(f"Write {dataset_out}")
         self.write(dataset_out, self.strain(stack, ref))
+
+
+class Image2Profile(H5File):
+
+    def __init__(self, filename, mode, overwrite = False):
+        super().__init__(filename, mode, overwrite)
+        self.data = None
+        self.nan_mask = None
+        self.selected_mask = None
+        self.selected_mask_closed = None
+        self.boundary = None
+        self.profile = None
+
+
+    def map_2_mask(self, dataset: str):
+        self.data = self.read(dataset)
+        self.nan_mask = np.isnan(self.data)
+
+        self.labeled, self.n_regions = ndimage.label(self.nan_mask)
+
+        if self.n_regions == 0:
+            raise ValueError("No mask were found.")
+
+        sizes = ndimage.sum(self.nan_mask, self.labeled, range(1, self.n_regions + 1))
+        self.order = np.argsort(sizes)[::-1]
+        self.sizes_sorted = sizes[self.order]
+        self.labels_sorted = np.arange(1, self.n_regions + 1)[self.order]
+
+        print(f"Regions: {self.n_regions}")
+        print(f"Sizes: {self.sizes_sorted}")
+
+
+    def select_mask(self, idx=0):
+        if self.n_regions == 0:
+            raise ValueError("No regions available.")
+
+        if idx is None:
+            idx = 0
+
+        if idx < 0 or idx >= self.n_regions:
+            raise IndexError(f"idx {idx} out of range [0, {self.n_regions - 1}]")
+
+        label = self.labels_sorted[idx]
+        self.selected_mask = (self.labeled == label)
+
+        print(f"Selected region {idx} -> label {label} " f"with size {int(self.sizes_sorted[idx])}")
+
+
+    def close_selected_mask(self, iterations: int=2):
+        if self.selected_mask is None:
+            raise ValueError("No selected mask available.")
+
+        closed = ndimage.binary_closing(self.selected_mask, iterations=iterations)
+        self.selected_mask_closed = ndimage.binary_fill_holes(closed)
+        self.selected_mask = self.selected_mask_closed
+
+
+    def contours_selected_mask(self, level=0.5):
+        if self.selected_mask is None:
+            raise ValueError("No selected mask available.")
+
+        contours = measure.find_contours(self.selected_mask.astype(float), level=level)
+
+        if len(contours) == 0:
+            raise ValueError("No contours found for selected mask.")
+
+        self.contours = contours
+        self.boundary = max(contours, key=len)
+
+
+    def inspect_mask(self):
+        fig, ax = plt.subplots(nrows=2, ncols=2, sharex=False, sharey=False)
+        if self.data is not None:
+            ax[0, 0].imshow(self.data)
+        if self.nan_mask is not None:
+            ax[0, 1].imshow(self.nan_mask)
+        if self.select_mask is not None:
+            ax[1, 0].imshow(self.selected_mask)
+        if self.selected_mask_closed is not None:
+            ax[1, 1].imshow(self.selected_mask_closed)
+        if self.boundary is not None:
+            ax[0, 0].plot(self.boundary[:, 1], self.boundary[:, 0], color='red', linewidth=1.8)
+        plt.show()
+
+
+    def get_profile(self, window=1):
+        if self.boundary is None:
+            raise ValueError("No contour available.")
+
+        coords = np.round(self.boundary).astype(int)
+        h, w = self.data.shape
+        profile = []
+
+        half = window // 2
+        for y, x in coords:
+            y0 = max(y - half, 0)
+            y1 = min(y + half + (window % 2), h)
+            x0 = max(x - half, 0)
+            x1 = min(x + half + (window % 2), w)
+
+            patch = self.data[y0:y1, x0:x1]
+            profile.append(np.nanmean(patch))
+
+        self.profile = np.array(profile)
+
+
+    def cartesian2polar(self, phase=0., pix_x=1., pix_y=1.):
+        if self.boundary is None:
+            raise ValueError("No boundary available.")
+
+        y = self.boundary[:, 0]
+        x = self.boundary[:, 1]
+
+        cy, cx = self.boundary.mean(axis=0)
+
+        dx = (x - cx) * pix_x
+        dy = (y - cy) * pix_y
+
+        self.theta = np.arctan2(dy, dx) + phase
+        self.r = np.sqrt(dx**2 + dy**2)
+
+        order = np.argsort(self.theta)
+        self.theta = np.rad2deg(self.theta[order])
+        self.r = self.r[order]
+
+
+    def theta_profile(self):
+        plt.plot(self.theta, self.profile)
+        plt.show()
