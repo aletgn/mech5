@@ -442,6 +442,11 @@ class Image2Profile(H5File):
         self.r = self.r[order]
 
 
-    def theta_profile(self):
-        plt.plot(self.theta, self.profile)
-        plt.show()
+    def theta_profile(self, show=False):
+        if show:
+            fig, ax = plt.subplots()
+            ax.plot(self.theta, self.profile)
+            plt.show()
+            return None
+        else:
+            return self.theta, self.profile

@@ -439,6 +439,7 @@ class H5PlotDarkField:
         self.norm_ori = None
         self.ticks_off = None
         self.scale_bar = None
+        self.linthresh = 1e-4
         self.figsize = (10, 12)
 
 
@@ -453,6 +454,10 @@ class H5PlotDarkField:
 
         if self.cscale == "log":
             im = ax.imshow(image, cmap=self.cmap, norm=LogNorm(vmin=self._min, vmax=self._max),
+                           extent=extent, origin=self.origin)
+        elif self.cscale == "symlog":
+            norm = SymLogNorm(linthresh=self.linthresh, vmin=self._min, vmax=self._max,)
+            im = ax.imshow(image, cmap=self.cmap, norm=norm,
                            extent=extent, origin=self.origin)
         else:
             im = ax.imshow(image, cmap=self.cmap, vmin=self._min, vmax=self._max,
@@ -721,7 +726,7 @@ class H5EBSDPlot:
         self.cscale = None
         self.linthresh = 1e-3
         self.cori = "vertical"
-        self.cshrink = 0.8
+        self.cshrink = 0.7
         self.cmap = "viridis"
         self.cpad = 1
         self.title = None
@@ -756,9 +761,9 @@ class H5EBSDPlot:
         else:
             extent = (0, image.shape[1]*self.pix_x, 0, image.shape[0]*self.pix_y)
 
-        if self.cscale == "log":
+        if self.cscale == "log" and self._min is not None and self._max is not None:
             norm = LogNorm(vmin=self._min, vmax=self._max)
-        elif self.cscale == "symlog":
+        elif self.cscale == "symlog" and self._min is not None and self._max is not None:
             norm = SymLogNorm(linthresh=self.linthresh, vmin=self._min, vmax=self._max,)
         else:
             norm = Normalize(vmin=self._min, vmax=self._max)
