@@ -140,6 +140,46 @@ class H5File:
         return self.file[path][()]
 
 
+    def get(self, path: str):
+        """
+        Get a dataset handler without reading the array.
+
+        Parameters
+        ----------
+        path : str
+            Path to the dataset.
+
+        Returns
+        -------
+        Any
+            Dataset.
+        """
+        return self.file[path]
+
+
+    def create(self, path: str, shape, dtype):
+        """
+        Create a dataset in the file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the dataset.
+        shape : tuple
+            Shape of the dataset.
+        dtype : Any
+            Data type of the dataset.
+
+        Returns
+        -------
+        h5py.Dataset
+            Created dataset.
+        """
+        if path in self.file:
+            del self.file[path]
+        return self.file.create_dataset(path, shape=shape, dtype=dtype,)
+
+
     def write(self, path: str, data: Any) -> None:
         """
         Write a dataset to the file, replacing it if it exists.

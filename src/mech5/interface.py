@@ -1060,11 +1060,13 @@ def test_confocal():
     c5 = ConfocalPluxToH5File(h5, "/home/ale/Desktop/t_001_grip_new/scan/")
 
     with h5 as h:
-        # c5.plux_to_h5()
-        # c5.aux_to_h5()
+        h.write_created()
+        h.write_name("T_001_grip")
+        h.write("confocal/common/pixel_size", 0.69)
+        c5.plux_to_h5()
+        c5.aux_to_h5()
         c5.recipe_to_h5()
         ...
-
 
 
 if __name__ == "__main__":

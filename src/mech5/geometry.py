@@ -1736,6 +1736,129 @@ def test_eq_diameter():
     print(d)
 
 
+class ConfocalProcessor:
+
+    def __init__(self, h5: H5File):
+        self.h5 = h5
+
+
+    def write_clouds(self, start=None, stop=None, dtype=np.float64):
+        tiles = self.h5.get("confocal/tiles/height")
+        h, w = tiles[0].shape
+        pix = self.h5.read("confocal/common/pixel_size")
+        x = np.arange(w, dtype=np.float32) * pix
+        y = np.arange(h, dtype=np.float32) * pix
+        X, Y = np.meshgrid(x, y)
+        XY = np.column_stack((X.ravel(), Y.ravel()))
+
+        cloud = self.h5.create("confocal/clouds/original", (tiles.shape[0], h * w, 3), dtype=dtype)
+        for i, tile in enumerate(tiles):
+            print(f"{i + 1}/{len(tiles)} Converting to cloud")
+            cloud[i, :, :2] = XY
+            cloud[i, :,  2] = tile.ravel()
+
+    @staticmethod
+    def R(theta):
+        c = np.cos(theta)
+        s = np.sin(theta)
+        R = np.array([[1.0, 0.0, 0.0],
+                      [0.0, c, -s],
+                      [0.0, s,  c]], dtype=np.float64)
+        return R
+
+
+    def arrange_clouds(self, centre=True, dtype=np.float64):
+        C = self.h5.get("confocal/clouds/original")
+        V = self.h5.read("confocal/motor/abs")
+        U = self.h5.read("confocal/motor/rel")
+        L = np.deg2rad(self.h5.read("confocal/motor/rel_angle_a"))
+        p = self.h5.read("confocal/motor/pivot")
+
+        A = self.h5.create("confocal/clouds/arranged", C.shape, dtype=dtype)
+        for i, (a, c, v, u, l) in enumerate(zip(A, C, V, U, L)):
+            print(f"{i + 1}/{len(C)} Arranging cloud")
+
+            t_abs = v - u
+            t_piv = p - u
+
+            q = c - t_abs
+            q = (q - t_piv) @ self.R(l) + t_piv - u
+
+            A[i] = q
+
+
+    def cloud_stats(self, dataset):
+        C = self.h5.read(dataset)
+
+        minimum = np.nanmin(C, axis=(0, 1))
+        maximum = np.nanmax(C, axis=(0, 1))
+        difference = maximum - minimum
+
+        print("GLOBAL CLOUD STATS")
+        print(f"X: min={minimum[0]:.6f}, max={maximum[0]:.6f}, diff={difference[0]:.6f}")
+        print(f"Y: min={minimum[1]:.6f}, max={maximum[1]:.6f}, diff={difference[1]:.6f}")
+        print(f"Z: min={minimum[2]:.6f}, max={maximum[2]:.6f}, diff={difference[2]:.6f}")
+
+
+    def display_clouds(self, dataset, samples=100):
+        C = self.h5.get(dataset)
+        rng = np.random.default_rng()
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+
+        for cloud in C:
+            n_points = cloud.shape[0]
+            indices = rng.choice(n_points, size=min(samples, n_points), replace=False,)
+            points = cloud[indices]
+            ax.scatter(points[:, 0], points[:, 1], points[:, 2], s=1)
+
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        plt.show()
+
+
+    def pre_fit(self, samples=1000):
+        from cylinder_fitting import fit
+
+        print("read")
+        C = self.h5.read("confocal/clouds/arranged")
+        data = C[:].reshape(-1, 3)
+
+        print("centroid")
+        centroid = np.nanmean(data, axis=0)
+        data -= centroid
+
+        print("mask")
+        valid = np.isfinite(data).all(axis=1)
+        data = data[valid]
+
+        print("down")
+        rng = np.random.default_rng()
+        indices = rng.choice(len(data), size=samples, replace=False)
+        data = data[indices]
+
+        print("fitting")
+        w_fit, C_fit, r_fit, fit_err = fit(data, guess_angles=[(0, 0)],)
+
+        print(w_fit, C_fit, r_fit, fit_err)
+
+
+def test_confocal_processor():
+    h5 = H5File("/home/ale/Desktop/test/test.h5", mode="a")
+    c5 = ConfocalProcessor(h5)
+
+    with h5 as h:
+        # c5.write_clouds()
+        c5.arrange_clouds()
+        # c5.display_clouds("confocal/clouds/arranged")
+        # c5.cloud_stats("confocal/clouds/arranged")
+        c5.pre_fit()
+
+
+
 if __name__ == "__main__":
     # test_tree()
     # test_distance()
@@ -1750,4 +1873,5 @@ if __name__ == "__main__":
     # test_pca()
     # test_pca_merged()
     # test_eq_diameter()
+    test_confocal_processor()
     ...
