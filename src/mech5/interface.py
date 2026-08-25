@@ -1,7 +1,10 @@
 import os
 import sys
 sys.path.append('../../src/')
+import gc
+
 from pathlib import Path
+from zipfile import ZipFile
 
 from typing import Union, List
 
@@ -9,11 +12,13 @@ import numpy as np
 import pandas as pd
 
 import yaml
+import xml.etree.ElementTree as ET
 from tqdm import tqdm
 
 import pyvista as pv
 
 from mech5.manager import H5File, SegmentedDatasetH5File
+
 
 
 class SpreadsheetToH5File:
@@ -485,7 +490,7 @@ class SegmentedH5FileToVTK(ArrayToVTK):
 
 import surfalize
 class PluxToH5File:
-    """Uses surfalize package."""
+    """Uses surfalize package. This shall be deprecated."""
 
     def __init__(self, h5: H5File, surface: surfalize.Surface):
         self.h5 = h5
@@ -500,8 +505,223 @@ class PluxToH5File:
         print("Pixel size along x- and y-axis", self.surface.step_x, self.surface.step_x)
 
 
-class DarkFieldXrayMicroscopyH5FileToVTK:
+class ConfocalPluxToH5File:
+
+    def __init__(self, h5: H5File, tile_folder: str):
+        """Recipe, plux and plux.aux must be stored in the same folder.
+            confocal/common/...
+            confocal/motor/...
+            confocal/tiles/bright
+            confocal/tiles/height
+        """
+        self.h5 = h5
+        self.tile_folder = tile_folder
+        self.plux_list = self.get_file_list(self.tile_folder, "*.plux")
+        self.plux_aux_list = self.get_file_list(self.tile_folder, "*.plux.aux")
+        self.recipe = self.get_file_list(self.tile_folder, "*.5mr")[0]
+
+        print(f"Found {len(self.plux_list)} plux files")
+        print(f"Found {len(self.plux_aux_list)} plux.aux files")
+        print(f"Found {self.recipe} recipe")
+
+
+    @staticmethod
+    def get_file_list(path: str, endswith: str):
+        path = Path(path)
+        return sorted(path.rglob(endswith))
+
+
+    @staticmethod
+    def parse_index_xml(index_xml):
+        root = ET.fromstring(index_xml)
+
+        general = root.find("GENERAL")
+        layer = root.find("LAYER_0")
+        info = root.find("INFO")
+
+        metadata = {
+        "fov_x": float(general.findtext("FOV_X")),
+        "fov_y": float(general.findtext("FOV_Y")),
+
+        "width": int(general.findtext("IMAGE_SIZE_X")),
+        "height": int(general.findtext("IMAGE_SIZE_Y")),
+
+        "light": None,
+        "threshold": None,
+        "z_scan": None,
+
+        "x": float(layer.findtext("POSITION_X")),
+        "y": float(layer.findtext("POSITION_Y")),
+        "z": float(layer.findtext("POSITION_Z")),}
+
+        for item in info:
+            if item.tag.startswith("ITEM_"):
+                name = item.findtext("NAME")
+                value = item.findtext("VALUE")
+
+                if name == "Light":
+                    metadata["light"] = float(value.rstrip("%"))
+
+                elif name == "Threshold":
+                    metadata["threshold"] = float(value.rstrip("%"))
+
+                elif name == "Z scan":
+                    metadata["z_range"] = float(value.split()[0])
+
+        return metadata
+
+    @staticmethod
+    def parse_aux(aux_xml):
+        root = ET.fromstring(aux_xml)
+        aux = root.find("SensoFivePluxAux")
+
+        return {
+            "a": float(aux.findtext("AngleA")),
+            "b": float(aux.findtext("AngleB")),
+            "x": float(aux.findtext("X")),
+            "y": float(aux.findtext("Y")),
+            "z": float(aux.findtext("Z")),
+        }
+
+    @staticmethod
+    def parse_recipe(xml_path, replace_nan=np.nan):
+        root = ET.parse(xml_path).getroot()
+        smr = root.find("_5MR")
+
+        sample = smr.find("SAMPLE")
+        settings = smr.find("SETTINGS")
+
+        def get_float(node, tag):
+            value = node.findtext(tag)
+
+            if value is None:
+                return None
+
+            return float(value)
+
+        positions = np.array([[get_float(node, "X"),
+                               get_float(node, "Y"),
+                               get_float(node, "Z"),
+                               get_float(node, "A"),
+                               get_float(node, "B")] for node in smr
+            if node.tag.startswith("INFO_TABLEPOSITION_")
+        ], dtype=np.float64)
+
+        positions = np.nan_to_num(positions, nan=replace_nan)
+
+        return {
+            "sample_diameter": get_float(
+                sample,
+                "SAMPLE_DIAMETER",
+            ),
+            "sample_length": get_float(
+                sample,
+                "SAMPLE_LENGTH",
+            ),
+            "sector_length_degrees": get_float(
+                settings,
+                "A_SECTOR_LENGTH_DEGREES",
+            ),
+            "pivot": np.array([
+                get_float(settings, "SYSTEM_ROTATION_X"),
+                get_float(settings, "SYSTEM_ROTATION_Y"),
+                get_float(settings, "SYSTEM_ROTATION_Z"),
+            ], dtype=np.float64),
+            "motor": positions,
+        }
+
     
+    def plux_to_h5(self, start=None, stop=None):
+        """Write absolute position of tiles and other metadata."""
+
+        motor = []
+        bright = []
+        height = []
+        fov = []
+        threshold = []
+        light = []
+        z_range = []
+
+        for i, t in enumerate(self.plux_list[start: stop]):
+            print(f"{i+1}/{len(self.plux_list)} Processing {t.name}")
+
+            z = ZipFile(t, "r")
+            mdata = self.parse_index_xml(z.read("index.xml"))
+            print(f"*Tile at {mdata["x"], mdata["y"], mdata["z"]}")
+            print(f"*Tile size {mdata["width"], mdata["height"]}")
+            print(f"*Tile FoV {mdata["fov_x"], mdata["fov_y"]}")
+
+            motor.append([mdata["x"], mdata["y"], mdata["z"]])
+            bright.append(np.frombuffer(z.read("LAYER_0.stack.raw"), dtype=np.uint8).reshape(mdata["height"], mdata["width"], 3)[:, :, 0])
+            height.append(np.frombuffer(z.read("LAYER_0.raw"), dtype=np.float32).reshape(mdata["height"], mdata["width"]))
+            fov.append([mdata["fov_x"], mdata["fov_y"]])
+            threshold.append(mdata["threshold"])
+            light.append(mdata["light"])
+            z_range.append(mdata["z_range"])
+
+            print()
+
+        self.h5.write("confocal/common/z_range", np.asarray(z_range))
+        self.h5.write("confocal/common/light", np.asarray(light))
+        self.h5.write("confocal/common/threshold", np.asarray(threshold))
+        self.h5.write("confocal/common/fov", np.stack(fov))
+
+        self.h5.write("confocal/motor/abs", np.stack(motor))
+
+        self.h5.write("confocal/tiles/bright", np.stack(bright, axis=0))
+        del bright; gc.collect()
+
+        self.h5.write("confocal/tiles/height", np.stack(height, axis=0))
+        del height; gc.collect()
+
+
+    def aux_to_h5(self, start=None, stop=None):
+        """Write coordinates to execute tile rotation."""
+        motor = []
+        angle_a = []
+        angle_b = []
+
+        for i, t in enumerate(self.plux_aux_list[start: stop]):
+            print(f"{i+1}/{len(self.plux_aux_list)} Processing {t.name}")
+            mdata = self.parse_aux(t.read_bytes())
+            print(f"*Tile at {mdata["x"], mdata["y"], mdata["z"], mdata["a"], mdata["b"]}")
+
+            motor.append([mdata["x"], mdata["y"], mdata["z"]])
+            angle_a.append(mdata["a"])
+            angle_b.append(mdata["b"])
+
+        self.h5.write("confocal/motor/rel", np.stack(motor))
+        self.h5.write("confocal/motor/rel_angle_a", np.asarray(angle_a))
+        self.h5.write("confocal/motor/rel_angle_b", np.asarray(angle_b))
+
+
+    def recipe_to_h5(self, replace_nan=np.nan):
+        """Write relative motor position of tiles and absolute position of motor axis of rotation"""
+        recipe = self.parse_recipe(self.recipe, replace_nan=0.)
+        self.h5.write("confocal/sample/diameter", recipe["sample_diameter"])
+        self.h5.write("confocal/sample/length", recipe["sample_length"])
+        self.h5.write("confocal/sample/sector_degrees", recipe["sector_length_degrees"])
+
+        self.h5.write("confocal/motor/pivot", recipe["pivot"])
+        self.h5.write("confocal/motor/grid", recipe["motor"][:, [0,1,2]])
+        self.h5.write("confocal/motor/grid_angle_a", recipe["motor"][:, 3])
+        self.h5.write("confocal/motor/grid_angle_b", recipe["motor"][:, 4])
+
+        x = recipe["motor"][:, 0]
+        a = recipe["motor"][:, 3]
+        step_x = np.unique(x)
+        step_a = np.unique(a)
+
+        assert step_x.shape[0] * step_a.shape[0] == len(self.plux_list)
+        print("grid size", step_x.shape, step_a.shape, step_x.shape[0] * step_a.shape[0], len(self.plux_list))
+
+        self.h5.write("confocal/grid/steps_axial", step_x)
+        self.h5.write("confocal/grid/steps_angle", step_a)
+
+
+
+class DarkFieldXrayMicroscopyH5FileToVTK:
+
     def __init__(self, h5file, name: str="Untitled"):
         self.h5 = h5file
         self.data_n_idx = None
@@ -589,7 +809,7 @@ class DarkFieldXrayMicroscopyH5FileToVTK:
         self.data_n_idx = len(data.shape)
         px, py, pz = self.spacing
         mask = ~np.isnan(data)
-        
+
         self.x, self.y, self.z = np.nonzero(mask)
         values = data[self.x, self.y, self.z]
         n = len(values)
@@ -602,7 +822,7 @@ class DarkFieldXrayMicroscopyH5FileToVTK:
                             [px,0,pz],
                             [px,py,pz],
                             [0,py,pz]])
-        
+
 
         points = (np.repeat(np.array([self.x*px, self.y*py, self.z*(pz+self.slice_offset)]).T, 8, axis=0) \
                   + np.tile(offsets, (n,1))).astype(float)
@@ -683,7 +903,7 @@ class DarkFieldXrayMicroscopyH5FileToVTK:
         # If opacity array is present, consider this
         # opacity = np.ones_like(values)
         # plotter.add_mesh(grid, scalars="values", opacity=opacity, cmap="viridis")
-    
+
 
     def view(self):
         self.pl = pv.Plotter(off_screen=self.off_screen)
@@ -717,7 +937,7 @@ class DarkFieldXrayMicroscopyH5FileToVTK:
 
         self.pl.show()
 
-    
+
     def export_vt_format(self, path: str):
         self.grid.save(path + self.ext)
 
@@ -835,6 +1055,18 @@ def validate_voxels():
             assert np.all(diff == 0)
 
 
+def test_confocal():
+    h5 = H5File("/home/ale/Desktop/test/test.h5", mode="a")
+    c5 = ConfocalPluxToH5File(h5, "/home/ale/Desktop/t_001_grip_new/scan/")
+
+    with h5 as h:
+        # c5.plux_to_h5()
+        # c5.aux_to_h5()
+        c5.recipe_to_h5()
+        ...
+
+
+
 if __name__ == "__main__":
     # print("=== Test open/close ===")
     # test_h5file_open_close()
@@ -856,4 +1088,7 @@ if __name__ == "__main__":
 
     # print("\n=== Validate voxels ===")
     # validate_voxels()
+
+    # print("\n=== Test confocal ===")
+    # test_confocal()
     ...
