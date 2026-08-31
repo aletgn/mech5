@@ -1769,7 +1769,7 @@ class ConfocalProcessor:
         return R
 
 
-    def arrange_clouds(self, start=None, stop=None, shift_angle=False, dtype=np.float64):
+    def arrange_clouds(self, start=None, stop=None, shift_angle=False, to_centroid=False, dtype=np.float64):
         C = self.h5.get("confocal/clouds/original")
         V = self.h5.read("confocal/motor/abs")
         U = self.h5.read("confocal/motor/rel")
@@ -1806,6 +1806,22 @@ class ConfocalProcessor:
             
             A[i] = q
 
+        if to_centroid:
+            centroid = np.zeros(3, dtype=np.float64)
+            count = 0
+            
+            for cloud in A:
+                centroid += np.nansum(cloud, axis=0)
+                count += np.isfinite(cloud[:, 0]).sum()
+
+            centroid /= count
+            print(f"Centroid is {centroid}")
+
+            for i in range(len(A)):
+                print(f"{i+1}/{len(A)} Translating to centroid")
+                A[i] -= centroid
+
+
 
     def cloud_stats(self, dataset):
         C = self.h5.read(dataset)
@@ -1841,16 +1857,17 @@ class ConfocalProcessor:
         plt.show()
 
 
-    def pre_fit(self, samples=1000):
+    def pre_fit(self, to_centroid=True, samples=1000):
         from cylinder_fitting import fit
 
         print("read")
         C = self.h5.read("confocal/clouds/arranged")
         data = C[:].reshape(-1, 3)
 
-        print("centroid")
-        centroid = np.nanmean(data, axis=0)
-        data -= centroid
+        if to_centroid:
+            print("centroid")
+            centroid = np.nanmean(data, axis=0)
+            data -= centroid
 
         print("mask")
         valid = np.isfinite(data).all(axis=1)
