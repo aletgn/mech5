@@ -1061,6 +1061,20 @@ def test_confocal():
         ...
 
 
+def test_confocal_wrap():
+    h5 = H5File("/home/ale/Desktop/test/t_001.h5", mode="a")
+    c5 = ConfocalPluxToH5File(h5, "/home/ale/Desktop/images/scan/")
+
+    with h5 as h:
+        h.write_created()
+        h.write_name("T_001")
+        h.write("confocal/common/pixel_size", 0.69)
+        c5.plux_to_h5()
+        c5.aux_to_h5()
+        c5.recipe_to_h5()
+        ...
+
+
 if __name__ == "__main__":
     # print("=== Test open/close ===")
     # test_h5file_open_close()
@@ -1084,5 +1098,6 @@ if __name__ == "__main__":
     # validate_voxels()
 
     # print("\n=== Test confocal ===")
-    test_confocal()
+    # test_confocal()
+    # test_confocal_wrap()
     ...

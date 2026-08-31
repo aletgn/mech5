@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append('../../src/')
 
+import gc
 from typing import Tuple, Union, List
 from itertools import product
 
@@ -19,6 +20,7 @@ from tqdm import tqdm
 from mech5.manager import H5File, SegmentedDatasetH5File
 from sklearn.decomposition import IncrementalPCA
 from surfalize import Surface
+import open3d as o3d
 
 
 def eq_diameter(volume: np.array) -> np.ndarray:
@@ -1153,7 +1155,7 @@ class RoughnessProcessor(TopographyProcessor):
     def partition_squares(self, path, k, show=False):
         points = self.h5.read(path)
         raster_list, x_edges, y_edges = super().partition_squares(points, k, show)
-        
+
         rasters = np.hstack([r.flatten() for r in raster_list])
         shapes = np.asarray([dim for r in raster_list for dim in r.shape])
         lengths = np.array([r.size for r in raster_list], dtype=int)
@@ -1792,7 +1794,7 @@ class ConfocalProcessor:
             # to keep tile order along axis translation must be c + u - v. z_mean ~ 0
             q_tra = c - v + u
 
-            # tiles have curvature like A (not U) so pivot must have z < 0 
+            # tiles have curvature like A (not U) so pivot must have z < 0
             t_piv = p - u
 
             # rotate wrt pivot, exit that frame and get absolute coordinates
@@ -1803,13 +1805,13 @@ class ConfocalProcessor:
             # q_tra = c + v
             # t_piv = p
             # q = (q_tra - t_piv) @ self.R(l) @  self.R(np.deg2rad(-12.5)) + t_piv
-            
+
             A[i] = q
 
         if to_centroid:
             centroid = np.zeros(3, dtype=np.float64)
             count = 0
-            
+
             for cloud in A:
                 centroid += np.nansum(cloud, axis=0)
                 count += np.isfinite(cloud[:, 0]).sum()
@@ -1861,8 +1863,7 @@ class ConfocalProcessor:
         from cylinder_fitting import fit
 
         print("read")
-        C = self.h5.read("confocal/clouds/arranged")
-        data = C[:].reshape(-1, 3)
+        data = self.h5.read("confocal/clouds/arranged").reshape(-1, 3)
 
         if to_centroid:
             print("centroid")
@@ -1885,15 +1886,15 @@ class ConfocalProcessor:
 
 
 def test_confocal_processor():
-    h5 = H5File("/home/ale/Desktop/test/test.h5", mode="a")
+    h5 = H5File("/home/ale/Desktop/test/t_001.h5", mode="a")
     c5 = ConfocalProcessor(h5)
 
     with h5 as h:
         # c5.write_clouds()
-        c5.arrange_clouds(0, 8, shift_angle=True)
-        c5.display_clouds("confocal/clouds/arranged", samples=100)
+        # c5.arrange_clouds(0, 644, shift_angle=True, to_centroid=True)
+        # c5.display_clouds("confocal/clouds/arranged", samples=100)
         # c5.cloud_stats("confocal/clouds/arranged")
-        c5.pre_fit(samples=10_000)
+        c5.pre_fit(samples=10_000, to_centroid=False)
 
         # bright = h.get("/confocal/tiles/bright/")
         # height = h.get("/confocal/tiles/height/")
@@ -1909,7 +1910,313 @@ def test_confocal_processor():
         # plt.figure()
         # plt.scatter(orig[0][:, 0], orig[0][:, 1], c= orig[0][:, 2])
         # plt.show()
+        ...
 
+
+
+class ConfocalRegistrator:
+
+    def __init__(self, h5: H5File, voxel_down_factor: int=1, max_dist_factor: int=1):
+        self.h5 = h5
+        self.voxel_down_factor = voxel_down_factor
+        self.max_dist_factor = max_dist_factor
+        self.voxel_down = None
+        self.max_dist = None
+
+        self.steps_angle = None
+        self.steps_axial = None
+
+        self.pairs = None
+        self.indices = None
+        self.index_to_node = None
+        self.pose_graph = None
+
+
+    def config_voxel(self):
+        self.voxel_size = self.h5.read("confocal/common/pixel_size")
+        self.voxel_down = self.voxel_size * self.voxel_down_factor
+        self.max_dist   = self.voxel_size * self.max_dist_factor
+        print(f"Voxel size = {self.voxel_size}")
+        print(f"Voxel down size = {self.voxel_down}")
+        print(f"Max dist = {self.max_dist}")
+
+
+    def config_grid(self):
+        self.steps_angle = len(self.h5.read("confocal/grid/steps_angle"))
+        self.steps_axial = len(self.h5.read("confocal/grid/steps_axial"))
+        print(f"Angle x Axial: {self.steps_angle} x {self.steps_axial}")
+
+
+    def get_cardinal_neighbours(self, angle, axial, wrap_angle=False):
+        pairs = []
+        centre = (angle, axial)
+        for da, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            a = angle + da
+            x = axial + dx
+
+            if wrap_angle:
+                a %= self.steps_angle
+            elif not 0 <= a < self.steps_angle:
+                continue
+
+            if not 0 <= x < self.steps_axial:
+                continue
+
+            pairs.append((centre, (a, x)))
+
+        return pairs
+
+
+    def get_all_neighbours(self, angle, axial, wrap_angle=False):
+        pairs = []
+        centre = (angle, axial)
+        for da, dx in [(-1, 0), (1, 0), (0, -1), (0, 1),
+                       (-1, -1), (1, 1), (1, -1), (-1, 1)]:
+            a = angle + da
+            x = axial + dx
+
+            if wrap_angle:
+                a %= self.steps_angle
+            elif not 0 <= a < self.steps_angle:
+                continue
+
+            if not 0 <= x < self.steps_axial:
+                continue
+
+            pairs.append((centre, (a, x)))
+
+        return pairs
+
+
+    def get_all_neighbour_pairs(self, wrap_angle=False, neigh_fn: str="get_cardinal_neighbours"):
+        pairs = set()
+        fn = getattr(self, neigh_fn)
+
+        for angle in range(self.steps_angle):
+            for axial in range(self.steps_axial):
+                for pair in fn(angle, axial, wrap_angle):
+                    pairs.add(tuple(sorted(pair)))
+
+        indices = set()
+        # if pairs are filtered create the corresponing grid of indices
+        # if the grid is already full, this will create grid of int like steps_angle x steps_axial
+        # this is significant if one works on a subset of the tiles
+        for source_idx, target_idx in pairs:
+            indices.add(source_idx)
+            indices.add(target_idx)
+
+        self.pairs = list(pairs)
+        self.indices = indices
+        self.index_to_node = {idx: i for i, idx in enumerate(sorted(self.indices))}
+
+        print(f"Unique indices pairs: {len(self.pairs)}")
+        print(f"Unique indices list: {len(self.indices)}")
+
+        return self.pairs, self.indices
+
+
+    @staticmethod
+    def to_pcd(points, voxel_down=None):
+        points = points[~np.isnan(points).any(axis=1)]
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+
+        if voxel_down is not None:
+            pcd = pcd.voxel_down_sample(voxel_down)
+
+        return pcd
+
+
+    def clouds_to_pcd(self, dataset, show=False):
+        print(f"Reading clouds from {dataset}")
+        clouds = self.h5.read(dataset).reshape(self.steps_axial, self.steps_angle, -1, 3).transpose(1, 0, 2, 3)
+        # clouds = self.h5.read(dataset).reshape(self.steps_angle, self.steps_axial, -1, 3)
+        pcds = {}
+
+        for i, idx in enumerate(sorted(self.indices)):
+            print(f"[{i + 1}/{len(self.indices)}] {idx}")
+            pcds[idx] = self.to_pcd(clouds[idx], self.voxel_down)
+        del clouds
+        gc.collect()
+
+        if show:
+            os.environ["GDK_BACKEND"] = "x11"
+            os.environ["DISPLAY"] = ":1"
+            os.environ["PYOPENGL_PLATFORM"] = "glx"
+            os.environ["XDG_SESSION_TYPE"] = "x11"
+
+            merged = sum(pcds.values(), o3d.geometry.PointCloud())
+            points = np.asarray(merged.points)
+
+            p_min = np.min(points, axis=0)
+            p_max = np.max(points, axis=0)
+            centre = np.nanmean(points, axis=0)
+            diff = p_max - p_min
+
+            print(f"\nMerged cloud:")
+            print(f"  min:    {p_min}")
+            print(f"  max:    {p_max}")
+            print(f"  diff:   {diff}")
+            print(f"  centre: {centre}")
+
+            from cylinder_fitting import fit
+            w_fit, C_fit, r_fit, fit_err = fit(np.asarray(pcds[(0, 0)].points), guess_angles=[(0, 0)],)
+            print(w_fit, C_fit, r_fit, fit_err)
+
+            o3d.visualization.draw_geometries(list(pcds.values()), window_name="Raw Point clouds")
+
+        return pcds
+
+
+    def register(self, dataset, skip_global=False, show=False):
+
+        pcds = self.clouds_to_pcd(dataset, show=show)
+        self.index_to_node = {idx: i for i, idx in enumerate(sorted(self.indices))}
+        pose_graph = o3d.pipelines.registration.PoseGraph()
+        for _ in self.indices:
+            pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(np.eye(4)))
+
+        for i, (centre, neighbour) in enumerate(self.pairs):
+            print(f"[ICP {i + 1}/{len(self.pairs)}] {centre} -> {neighbour}")
+
+            source = pcds[centre]
+            target = pcds[neighbour]
+
+            result = o3d.pipelines.registration.registration_icp(
+                source,
+                target,
+                self.max_dist,
+                np.eye(4),
+                o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            )
+
+            print(f"fitness={result.fitness:.4f} | rmse={result.inlier_rmse:.3f} µm")
+
+            source_id = self.index_to_node[centre]
+            target_id = self.index_to_node[neighbour]
+
+            information = (
+                o3d.pipelines.registration
+                .get_information_matrix_from_point_clouds(
+                    source,
+                    target,
+                    self.max_dist,
+                    result.transformation,
+                )
+            )
+
+            pose_graph.edges.append(
+                o3d.pipelines.registration.PoseGraphEdge(
+                    source_id,
+                    target_id,
+                    result.transformation,
+                    information,
+                    uncertain=True,
+                )
+            )
+
+        option = o3d.pipelines.registration.GlobalOptimizationOption(
+            max_correspondence_distance=self.max_dist,
+            edge_prune_threshold=0.25,
+            reference_node=self.index_to_node[(0, 0)])
+
+        if not skip_global:
+            print("Global optimisation...")
+
+            o3d.pipelines.registration.global_optimization(
+                pose_graph,
+                o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
+                o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
+                option,
+            )
+
+        self.pose_graph = pose_graph
+        return pose_graph
+
+
+    def store_registration(self, dataset_in, dataset_out):
+        merged = o3d.geometry.PointCloud()
+        pcds = self.clouds_to_pcd(dataset_in, show=False)
+
+        for idx, node_id in self.index_to_node.items():
+            print(idx)
+            pose = self.pose_graph.nodes[node_id].pose
+
+            pcd_down = o3d.geometry.PointCloud(pcds[idx])
+            pcd_down.transform(pose)
+            merged += pcd_down
+
+        del pcds
+        gc.collect()
+
+        self.h5.write(dataset_out, np.asarray(merged.points))
+
+
+    def display_clouds(self, dataset, samples=1000):
+        C = self.h5.get(dataset)
+        rng = np.random.default_rng()
+        n_points = C.shape[0]
+        indices = rng.choice(
+        n_points,
+        size=min(samples, n_points),
+        replace=False,
+        )
+        indices.sort()
+        points = C[indices]
+
+        points-=np.nanmean(points, axis=0)
+
+
+        from cylinder_fitting import fit
+        w_fit, C_fit, r_fit, fit_err = fit(points, guess_angles=[(0, 0)],)
+        print(w_fit, C_fit, r_fit, fit_err)
+
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        ax.scatter(points[:, 0], points[:, 1], points[:, 2], s=1)
+
+        ax.axis("equal")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+
+        plt.show()
+
+
+    def to_ply(self, dataset, path):
+        C = self.h5.read(dataset)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(C)
+        o3d.io.write_point_cloud(path, pcd)
+
+
+def test_registration():
+    h5 = H5File("/home/ale/Desktop/test/t_001.h5", mode="a")
+    c = ConfocalRegistrator(h5, 10, 10)
+
+    with h5 as h:
+        c.config_voxel()
+        c.config_grid()
+        p, i = c.get_all_neighbour_pairs(wrap_angle=True, neigh_fn="get_cardinal_neighbours")
+        c.register("confocal/clouds/arranged", skip_global=False)
+        c.store_registration("confocal/clouds/arranged", "confocal/clouds/merged_down")
+        c.to_ply("confocal/clouds/merged_down", "/home/ale/Desktop/test/merged_down.ply")
+        # # c.voxel_down = None
+        # # c.store_registration("confocal/clouds/arranged", "confocal/clouds/merged_full")
+
+        # c.display_clouds("confocal/clouds/merged_down", 15_000)
+
+        os.environ["GDK_BACKEND"] = "x11"
+        os.environ["DISPLAY"] = ":1"
+        os.environ["PYOPENGL_PLATFORM"] = "glx"
+        os.environ["XDG_SESSION_TYPE"] = "x11"
+        pcd = o3d.io.read_point_cloud("/home/ale/Desktop/test/merged_down.ply")
+
+        print(pcd)
+        print(np.asarray(pcd.points).shape)
+
+        o3d.visualization.draw_geometries([pcd], window_name="Cloud", )
 
 if __name__ == "__main__":
     # test_tree()
@@ -1925,5 +2232,6 @@ if __name__ == "__main__":
     # test_pca()
     # test_pca_merged()
     # test_eq_diameter()
-    test_confocal_processor()
+    # test_confocal_processor()
+    test_registration()
     ...
