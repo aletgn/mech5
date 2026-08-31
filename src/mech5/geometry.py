@@ -1761,29 +1761,49 @@ class ConfocalProcessor:
     def R(theta):
         c = np.cos(theta)
         s = np.sin(theta)
+
+        # the signs in the diagonal reflects the scan order
         R = np.array([[1.0, 0.0, 0.0],
-                      [0.0, c, -s],
-                      [0.0, s,  c]], dtype=np.float64)
+                      [0.0, c, s],
+                      [0.0, -s, c]], dtype=np.float64)
         return R
 
 
-    def arrange_clouds(self, centre=True, dtype=np.float64):
+    def arrange_clouds(self, start=None, stop=None, shift_angle=False, dtype=np.float64):
         C = self.h5.get("confocal/clouds/original")
         V = self.h5.read("confocal/motor/abs")
         U = self.h5.read("confocal/motor/rel")
-        L = np.deg2rad(self.h5.read("confocal/motor/rel_angle_a"))
+        L = self.h5.read("confocal/motor/rel_angle_a")
+        s = self.h5.read("confocal/motor/start_angle")
+        steps_angle = self.h5.read("confocal/grid/steps_angle")
+        mean_range_angle = - (steps_angle[0] + steps_angle[-1]) / 2
+        print(f"mean angle range: {mean_range_angle}")
+
+        L_mod = np.deg2rad((L - s) % 360)
+
         p = self.h5.read("confocal/motor/pivot")
+        self.h5.delete("confocal/clouds/arranged")
+        A = self.h5.create("confocal/clouds/arranged", (stop-start, C.shape[1], C.shape[2]), dtype=dtype)
 
-        A = self.h5.create("confocal/clouds/arranged", C.shape, dtype=dtype)
-        for i, (a, c, v, u, l) in enumerate(zip(A, C, V, U, L)):
-            print(f"{i + 1}/{len(C)} Arranging cloud")
+        for i, (a, c, v, u, l) in enumerate(zip(A, C, V, U, L_mod)):
+            if i >= start and i < stop:
+                print(f"{i + 1}/{len(C)} Arranging cloud. Angle = {np.rad2deg(l)}")
 
-            t_abs = v - u
+            # to keep tile order along axis translation must be c + u - v. z_mean ~ 0
+            q_tra = c - v + u
+
+            # tiles have curvature like A (not U) so pivot must have z < 0 
             t_piv = p - u
 
-            q = c - t_abs
-            q = (q - t_piv) @ self.R(l) + t_piv - u
+            # rotate wrt pivot, exit that frame and get absolute coordinates
+            rot = self.R(l) @ self.R(mean_range_angle) if shift_angle else self.R(l)
+            q = (q_tra - t_piv) @ rot + t_piv + u
 
+            # this transformation tightens too much the cylinder
+            # q_tra = c + v
+            # t_piv = p
+            # q = (q_tra - t_piv) @ self.R(l) @  self.R(np.deg2rad(-12.5)) + t_piv
+            
             A[i] = q
 
 
@@ -1800,7 +1820,7 @@ class ConfocalProcessor:
         print(f"Z: min={minimum[2]:.6f}, max={maximum[2]:.6f}, diff={difference[2]:.6f}")
 
 
-    def display_clouds(self, dataset, samples=100):
+    def display_clouds(self, dataset, samples=1000):
         C = self.h5.get(dataset)
         rng = np.random.default_rng()
 
@@ -1813,6 +1833,7 @@ class ConfocalProcessor:
             points = cloud[indices]
             ax.scatter(points[:, 0], points[:, 1], points[:, 2], s=1)
 
+        ax.axis("equal")
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
@@ -1852,11 +1873,25 @@ def test_confocal_processor():
 
     with h5 as h:
         # c5.write_clouds()
-        c5.arrange_clouds()
-        # c5.display_clouds("confocal/clouds/arranged")
+        c5.arrange_clouds(0, 8, shift_angle=True)
+        c5.display_clouds("confocal/clouds/arranged", samples=100)
         # c5.cloud_stats("confocal/clouds/arranged")
-        c5.pre_fit()
+        c5.pre_fit(samples=10_000)
 
+        # bright = h.get("/confocal/tiles/bright/")
+        # height = h.get("/confocal/tiles/height/")
+
+        # plt.figure()
+        # plt.imshow(bright[0])
+
+        # plt.figure()
+        # plt.imshow(height[0])
+        # plt.show()
+
+        # orig = h.get("/confocal/clouds/arranged/")
+        # plt.figure()
+        # plt.scatter(orig[0][:, 0], orig[0][:, 1], c= orig[0][:, 2])
+        # plt.show()
 
 
 if __name__ == "__main__":

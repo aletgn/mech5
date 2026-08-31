@@ -608,27 +608,18 @@ class ConfocalPluxToH5File:
         ], dtype=np.float64)
 
         positions = np.nan_to_num(positions, nan=replace_nan)
-
+        # <"MEASURMENT_START_ROTATION">346.33500003814697</MEASURMENT_START_ROTATION>
         return {
-            "sample_diameter": get_float(
-                sample,
-                "SAMPLE_DIAMETER",
-            ),
-            "sample_length": get_float(
-                sample,
-                "SAMPLE_LENGTH",
-            ),
-            "sector_length_degrees": get_float(
-                settings,
-                "A_SECTOR_LENGTH_DEGREES",
-            ),
+            "sample_diameter": get_float(sample, "SAMPLE_DIAMETER",),
+            "sample_length": get_float(sample, "SAMPLE_LENGTH",),
+            "sector_length_degrees": get_float(settings,"A_SECTOR_LENGTH_DEGREES",),
             "pivot": np.array([
                 get_float(settings, "SYSTEM_ROTATION_X"),
                 get_float(settings, "SYSTEM_ROTATION_Y"),
                 get_float(settings, "SYSTEM_ROTATION_Z"),
             ], dtype=np.float64),
-            "motor": positions,
-        }
+            "start_angle": get_float(settings, "MEASURMENT_START_ROTATION"),
+            "motor": positions}
 
     
     def plux_to_h5(self, start=None, stop=None):
@@ -702,6 +693,7 @@ class ConfocalPluxToH5File:
         self.h5.write("confocal/sample/length", recipe["sample_length"])
         self.h5.write("confocal/sample/sector_degrees", recipe["sector_length_degrees"])
 
+        self.h5.write("confocal/motor/start_angle", recipe["start_angle"])
         self.h5.write("confocal/motor/pivot", recipe["pivot"])
         self.h5.write("confocal/motor/grid", recipe["motor"][:, [0,1,2]])
         self.h5.write("confocal/motor/grid_angle_a", recipe["motor"][:, 3])
@@ -1060,11 +1052,11 @@ def test_confocal():
     c5 = ConfocalPluxToH5File(h5, "/home/ale/Desktop/t_001_grip_new/scan/")
 
     with h5 as h:
-        h.write_created()
-        h.write_name("T_001_grip")
-        h.write("confocal/common/pixel_size", 0.69)
-        c5.plux_to_h5()
-        c5.aux_to_h5()
+        # h.write_created()
+        # h.write_name("T_001_grip")
+        # h.write("confocal/common/pixel_size", 0.69)
+        # c5.plux_to_h5()
+        # c5.aux_to_h5()
         c5.recipe_to_h5()
         ...
 
@@ -1092,5 +1084,5 @@ if __name__ == "__main__":
     # validate_voxels()
 
     # print("\n=== Test confocal ===")
-    # test_confocal()
+    test_confocal()
     ...
