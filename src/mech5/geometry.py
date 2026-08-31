@@ -2111,7 +2111,7 @@ class ConfocalRegistrator:
                     target_id,
                     result.transformation,
                     information,
-                    uncertain=True,
+                    uncertain=False,
                 )
             )
 
