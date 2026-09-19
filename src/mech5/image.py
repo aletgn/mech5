@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from mech5.manager import H5File
 from mech5.util import normalise
+from mech5.util import cartesian2polar as c2p
 
 class DarkFieldProcessor(H5File):
 
@@ -328,6 +329,7 @@ class Image2Profile(H5File):
         self.selected_mask_closed = None
         self.boundary = None
         self.profile = None
+        self.C = None
 
 
     def map_2_mask(self, dataset: str):
@@ -345,7 +347,7 @@ class Image2Profile(H5File):
         self.labels_sorted = np.arange(1, self.n_regions + 1)[self.order]
 
         print(f"Regions: {self.n_regions}")
-        print(f"Sizes: {self.sizes_sorted}")
+        # print(f"Sizes: {len(self.sizes_sorted)}")
 
 
     def select_mask(self, idx=0):
@@ -422,31 +424,44 @@ class Image2Profile(H5File):
         self.profile = np.array(profile)
 
 
-    def cartesian2polar(self, phase=0., pix_x=1., pix_y=1.):
+    def cartesian2polar(self, phase=0., pix_x=1., pix_y=1., show=False):
         if self.boundary is None:
             raise ValueError("No boundary available.")
 
-        y = self.boundary[:, 0]
-        x = self.boundary[:, 1]
+        y = -self.boundary[:, 0] * pix_y # chance convention image -> points
+        x = self.boundary[:, 1] * pix_x
 
-        cy, cx = self.boundary.mean(axis=0)
+        if self.C is None:
+            self.C = np.array([x.mean(), y.mean()])
+        print(f"Centroid is {self.C}")
 
-        dx = (x - cx) * pix_x
-        dy = (y - cy) * pix_y
+        r, theta, order = c2p(x, y, C=self.C, phase=phase)
 
-        self.theta = np.arctan2(dy, dx) + phase
-        self.r = np.sqrt(dx**2 + dy**2)
+        self.r = r[order]
+        self.theta = theta[order]
+        if self.profile is not None:
+            self.profile = self.profile[order]
+        if show:
+            fig, ax = plt.subplots(figsize=(6, 6))
 
-        order = np.argsort(self.theta)
-        self.theta = np.rad2deg(self.theta[order])
-        self.r = self.r[order]
+            ax.scatter(x, y, s=15, label="boundary points")
+            ax.scatter(*self.C, color="red", marker="x", s=100, label="centroid")
+
+            r_max = self.r.max()
+            phase_rad = np.deg2rad(phase)
+            ax.plot([self.C[0], self.C[0] + r_max * np.cos(phase_rad)],
+                    [self.C[1], self.C[1] + r_max * np.sin(phase_rad)],
+                    color="k", linestyle="--", label=f"phase = {phase}°")
+
+            ax.set_aspect("equal")
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+            plt.show()
 
 
     def theta_profile(self, show=False):
         if show:
             fig, ax = plt.subplots()
-            ax.plot(self.theta, self.profile)
+            ax.plot(self.theta, self.r)
             plt.show()
-            return None
-        else:
-            return self.theta, self.profile
+        return self.theta, self.profile

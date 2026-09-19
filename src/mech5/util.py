@@ -90,6 +90,41 @@ def normalise(x, x_min, x_max):
     return (x - x_min) / (x_max - x_min)
 
 
+def cartesian2polar(x, y, C=np.zeros(2), phase=0.):
+    """
+    Convert Cartesian coordinates (x, y) to polar (r, theta).
+
+    Parameters
+    ----------
+    x : ndarray, shape (..., N)
+        X coordinates.
+    y : ndarray, shape (..., N)
+        Y coordinates.
+    C : array-like, shape (2,), optional
+        Center (Cx, Cy) to subtract before converting. Defaults to (0, 0).
+    phase : float, optional
+        Angle offset in degrees, added to theta before wrapping to
+        [0, 2*pi).
+
+    Returns
+    -------
+    r : ndarray, shape (..., N)
+        Radial distance from `C`.
+    theta : ndarray, shape (..., N)
+        Angle in radians, wrapped to [0, 2*pi) after applying `phase`.
+    order : ndarray, shape (..., N)
+        Indices that would sort `theta` along the last axis (ascending);
+        not applied to `r`/`theta` here, left for the caller to use
+        e.g. via `np.take_along_axis`.
+    """
+    dx = x - C[0]
+    dy = y - C[1]
+    r = np.sqrt(dx**2 + dy**2)
+    theta = np.mod(np.arctan2(dy, dx) + np.deg2rad(phase), 2 * np.pi)
+    order = np.argsort(theta, axis=-1)
+    return r, theta, order
+
+
 if __name__ == "__main__":
 
     test_protocols_instance()
