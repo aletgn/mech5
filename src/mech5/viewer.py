@@ -712,8 +712,10 @@ class H5EBSDPlot:
         self.h5 = h5
         self._min = None
         self._max = None
+        self.quantiles = None
         self.saturate_max = True
         self.saturate_min = True
+        self.saturate = "neither"
         self.xlabel = None
         self.ylabel = None
         self.xlim = None
@@ -737,6 +739,8 @@ class H5EBSDPlot:
         self.dpi = 300
         self.ticks_off = None
         self.scale_bar = None
+        self.ipf_key = False
+        self.mask = None
 
 
     def plot(self, dataset):
@@ -754,6 +758,10 @@ class H5EBSDPlot:
         if self.saturate_min:
             image[image < self._min] = np.nan
 
+        if self.quantiles is not None:
+            self._min, self._max = np.nanquantile(image, self.quantiles)
+
+        vmax = max(abs(self._min), abs(self._max))
         fig, ax = plt.subplots()
 
         if self.pix_x is None and self.pix_y is None:
@@ -766,7 +774,7 @@ class H5EBSDPlot:
         elif self.cscale == "symlog" and self._min is not None and self._max is not None:
             norm = SymLogNorm(linthresh=self.linthresh, vmin=self._min, vmax=self._max,)
         else:
-            norm = Normalize(vmin=self._min, vmax=self._max)
+            norm = Normalize(vmin=-vmax, vmax=vmax)
 
         im = ax.imshow(image, extent=extent, cmap=self.cmap, norm=norm)
 
@@ -780,7 +788,7 @@ class H5EBSDPlot:
             ax.add_artist(scalebar)
 
         if self.cbar:
-            cbar = fig.colorbar(im, label=self.clabel, orientation=self.cori, shrink=self.cshrink)
+            cbar = fig.colorbar(im, label=self.clabel, orientation=self.cori, shrink=self.cshrink, extend=self.saturate)
             cbar.ax.tick_params(axis="both", direction="in", left=True, right=True, top=True, bottom=True)
             cbar.ax.tick_params(which='minor', direction="in", left=True, right=True, top=True, bottom=True)
         
@@ -821,6 +829,65 @@ class H5EBSDPlot:
             ax.add_artist(scalebar)
 
         plt.tight_layout()
+        if self.save:
+            plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
+                        bbox_inches="tight", pad_inches=0)
+            print(f"Saved {self.folder+self.name}")
+        else:
+            plt.show()
+
+
+
+    def plot_ipf(self, dataset):
+        import matplotlib.gridspec as gridspec
+        image = self.h5.read(dataset)
+
+        if self.pix_x is None and self.pix_y is None:
+            extent = None
+        else:
+            extent = (0, image.shape[1]*self.pix_y, 0, image.shape[0]*self.pix_x)
+
+        if self.mask is not None:
+            image = np.nan_to_num(
+                np.where(self.mask[..., None] > 0, image, np.nan), nan=255
+            ).astype(np.uint8)
+
+        if self.ipf_key is not None:
+            import orix.plot
+            from orix.quaternion.symmetry import Oh
+
+            fig = plt.figure()
+            gs = gridspec.GridSpec(
+                2, 3, figure=fig,
+                height_ratios=[4, 1.3],      # immagine : chiave
+                width_ratios=[1, 1, 1],      # la chiave occupa la colonna centrale
+                hspace=0.15,
+            )
+            ax = fig.add_subplot(gs[0, :])
+            ax_key = fig.add_subplot(gs[1, 1], projection="ipf", symmetry=Oh)
+        else:
+            fig, ax = plt.subplots()
+            ax_key = None
+
+        ax.imshow(image, extent=extent, cmap=self.cmap)
+
+        if self.ticks_off:
+            ax.axis('off')
+        else:
+            ax.tick_params(axis="both", direction="in", top=True, right=True)
+
+        if self.scale_bar is not None:
+            scalebar = AnchoredSizeBar(transform=ax.transData, **self.scale_bar)
+            ax.add_artist(scalebar)
+
+        if ax_key is not None:
+            ax_key.plot_ipf_color_key(show_title=False)
+            # ax_key.set_title("IPF-Z", fontsize=15)
+            for t in ax_key.texts:
+                t.set_fontsize(15)
+
+        ax.set_title("IPF-Z")
+
         if self.save:
             plt.savefig(self.folder+self.name, format=self.format, dpi=self.dpi,
                         bbox_inches="tight", pad_inches=0)
