@@ -1,13 +1,17 @@
 import sys
 sys.path.append('../../src/')
+from typing import List
 
 import numpy as np
-
 from scipy import ndimage
-from skimage import measure
 
-from skimage.morphology import remove_small_holes
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+import skimage
+from skimage import measure
+from skimage.transform import rescale
+from skimage.morphology import remove_small_holes
 
 from mech5.manager import H5File
 from mech5.util import normalise
@@ -465,3 +469,210 @@ class Image2Profile(H5File):
             ax.plot(self.theta, self.r)
             plt.show()
         return self.theta, self.profile
+
+
+class TomoMask3DXRD:
+
+    def __init__(self, tomo, pix_tomo, scan, pix_scan):
+        self.pix_tomo = pix_tomo
+        self.pix_scan = pix_scan
+        self.ratio = self.pix_tomo / self.pix_scan
+
+        self.tomo_orig = tomo
+        self.scan_orig = scan
+        self.ht_orig, self.wt_orig = self.tomo_orig.shape
+        self.hs_orig, self.ws_orig = self.scan_orig.shape
+
+        self.tomo = self.tomo_orig
+        self.scan = self.scan_orig
+        self.ht, self.wt = self.tomo.shape
+        self.hs, self.ws = self.scan.shape
+
+        self.mask = None
+        self.mask_path = None
+
+        print(f"pix_tomo = {self.pix_tomo}")
+        print(f"pix_scan = {self.pix_scan}")
+        print(f"ratio = {self.ratio}")
+        print(f"tomo shape = {self.tomo_orig.shape}")
+        print(f"scan shape = {self.scan_orig.shape}")
+
+
+    def plot_orig(self) -> None:
+        """Plot original tomographic and 3DXRD scans"""
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+        ax[0].imshow(self.tomo_orig, cmap="gray", extent=(0, self.wt_orig * self.pix_tomo, self.ht_orig * self.pix_tomo, 0))
+        ax[0].set_title(f"Tomo ({self.ht_orig} X {self.wt_orig} px)")
+        ax[1].imshow(self.scan_orig, cmap="viridis", extent=(0, self.ws_orig * self.pix_scan, self.hs_orig * self.pix_scan, 0))
+        ax[1].set_title(f"Scan ({self.hs_orig} X {self.ws_orig} px)")
+        plt.show()
+
+
+    def plot(self) -> None:
+        """Plot current state of tomographic and 3DXRD scans"""
+        fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+        ax[0].imshow(self.tomo, cmap="gray", extent=(0, self.wt * self.pix_tomo, self.ht * self.pix_tomo, 0))
+        ax[0].set_title(f"Tomo ({self.ht} X {self.wt} px)")
+        ax[1].imshow(self.scan, cmap="viridis", extent=(0, self.ws * self.pix_scan, self.hs * self.pix_scan, 0))
+        ax[1].set_title(f"Scan ({self.hs} X {self.ws} px)")
+        plt.show()
+
+
+    def register_tomo(self, scale: bool=False, order:int =1, transpose: bool=False, flip: bool=False, k: bool=0) -> None:
+        """
+        Register the tomography image by applying scaling, transposition,
+        horizontal flipping, and rotation.
+
+        Parameters
+        ----------
+        scale : bool, default=False
+            If True, rescale the original tomography image using ``self.ratio``.
+        order : int, default=1
+            Interpolation order used for rescaling. ``0`` uses nearest-neighbour
+            interpolation and preserves the original data type; higher orders
+            produce a ``float32`` output.
+        transpose : bool, default=False
+            If True, transpose the tomography image.
+        flip : bool, default=False
+            If True, flip the tomography image horizontally.
+        k : int, default=0
+            Number of 90-degree counter-clockwise rotations to apply. Only
+            ``k % 4`` is relevant.
+
+        Returns
+        -------
+        None
+            The registered tomography is stored in ``self.tomo``. Its height and
+            width are stored in ``self.ht`` and ``self.wt``, respectively.
+        """
+        out = self.tomo_orig
+        if scale:
+            print(f"Scaling tomo: ratio={self.ratio}, order={order}")
+            out = rescale(self.tomo_orig, self.ratio, order=order, preserve_range=True, anti_aliasing=(self.ratio < 1))
+            out = out.astype(self.tomo_orig.dtype if order == 0 else np.float32)
+        if transpose:
+            print("Transposing tomo")
+            out = out.T
+        if flip:
+            print("Flipping tomo horizontally")
+            out = out[:, ::-1]
+        if k % 4:
+            print(f"Rotating tomo: k={k}")
+            out = np.rot90(out, k)
+        tomo = np.ascontiguousarray(out)
+        print(f"shape: {tomo.shape}")
+        self.tomo = tomo
+        self.ht, self.wt = self.tomo.shape
+
+
+    def roi(self, center=None, offset: List=[0,0], sigma=None, threshold: callable=skimage.filters.threshold_li, show=True):
+        """
+        Extract an ROI from the registered tomography and generate a binary mask.
+
+        The ROI is centred on the tomography by default, or at a user-defined
+        position with an optional offset. A Gaussian filter can be applied before
+        extracting the ROI. The ROI is then thresholded to generate a binary
+        mask, which is stored in ``self.mask``.
+
+        Parameters
+        ----------
+        center : tuple or list of int, optional
+            ROI centre as ``(cy, cx)`` in ``(row, column)`` coordinates. If None,
+            the centre of ``self.tomo`` is used.
+        offset : list of int, default=[0, 0]
+            Offset applied to the ROI centre as ``[dy, dx]``.
+        sigma : float, optional
+            Standard deviation of the Gaussian filter applied to the tomography
+            before ROI extraction. If None, no filtering is applied.
+        threshold : callable, default=skimage.filters.threshold_li
+            Thresholding function applied to the finite ROI values. The function
+            must accept a NumPy array and return a scalar threshold value.
+        show : bool, default=True
+            If True, display the registered tomography, extracted ROI, masks, and
+            Dice coefficient.
+
+        Returns
+        -------
+        numpy.ndarray
+            Boolean ROI mask with shape ``(self.hs, self.ws)``. Pixels with values
+            above the computed threshold are True, while all other pixels are
+            False. The mask is also stored in ``self.mask``.
+        """
+        # get tomo
+        tomo = self.tomo
+
+        # roi edges
+        h_roi, w_roi = self.hs, self.ws
+
+        # roi centre
+        if center is None:
+            cy, cx = tomo.shape[0] // 2, tomo.shape[1] // 2
+        else:
+            cy, cx = center
+
+        cy += offset[0]
+        cx += offset[1]
+        print(f"ROI centre {cx, cy}")
+
+        y0 = round(cy - h_roi // 2)
+        x0 = round(cx - w_roi // 2)
+
+        y1 = y0 + h_roi
+        x1 = x0 + w_roi
+
+        # blur tomo if needed with gaussian kernel
+        if sigma is not None:
+            print(f"Gaussian filter with {sigma} sigma")
+            tomo = skimage.filters.gaussian(tomo, sigma=sigma, preserve_range=True)
+
+        # Extract ROI, keeping exactly the scan dimensions
+        core = np.zeros((h_roi, w_roi), dtype=tomo.dtype)
+
+        ys, xs = max(y0, 0), max(x0, 0)
+        ye, xe = min(y1, tomo.shape[0]), min(x1, tomo.shape[1])
+
+        if ye > ys and xe > xs:
+            core[ys - y0:ye - y0, xs - x0:xe - x0] = tomo[ys:ye, xs:xe]
+
+        # threshold
+        print(f"Thesholding with {threshold.__name__}")
+        thr = threshold(core[np.isfinite(core)])
+        roi_mask = np.isfinite(core) & (core > thr)
+        scan_mask = np.isfinite(self.scan) & (self.scan != 0)
+        inter = (roi_mask & scan_mask).sum()
+        dice = 2 * inter / (roi_mask.sum() + scan_mask.sum() + 1e-9)
+        # masked_scan = np.where(roi_mask, self.scan, np.nan)
+
+        if show:
+            fig, ax = plt.subplots(2, 2, figsize=(8, 8))
+            ax[0, 0].imshow(tomo, cmap="gray")
+            ax[0, 0].add_patch(Rectangle((x0, y0), w_roi, h_roi, fill=False, ec="r", lw=2))
+            ax[0, 0].set_title(f"Registered Tomo {tomo.shape}\nROI {h_roi} X {w_roi} px")
+
+            ax[0, 1].set_title(f"ROI {core.shape}")
+            ax[0, 1].imshow(core, cmap="grey")
+
+            ax[1, 0].set_title(f"Scan {self.scan.shape}")
+            ax[1, 0].imshow(self.scan, cmap="inferno")
+            ax[1, 0].contour(roi_mask, linewidth=1, cmap="viridis")
+
+            masked_scan = np.where(roi_mask & scan_mask, self.scan, np.nan)
+            ax[1, 1].imshow(masked_scan, cmap="viridis")
+            ax[1, 1].set_title(f"DICE = {dice:.2f}")
+
+            inset = ax[1, 1].inset_axes([0.72, 0.72, 0.22, 0.22])
+            inset.imshow(roi_mask, cmap="gray")
+            inset.axis("off")
+
+            plt.tight_layout()
+            plt.show()
+
+        self.mask = roi_mask
+        return self.mask
+
+
+    def to_array(self):
+        """Save mask to file."""
+        print(self.mask)
+        print(f"Mask saved to {self.mask_path}")
+        np.save(self.mask_path, self.mask)
